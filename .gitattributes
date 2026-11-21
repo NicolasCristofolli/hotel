@@ -1,0 +1,5 @@
+# Consistent LF line endings across Windows/WSL/macOS
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ico binary

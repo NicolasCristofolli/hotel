@@ -1,0 +1,23 @@
+# Dependencies & build output
+node_modules
+dist
+*.tsbuildinfo
+
+# Environment — never commit real keys (.env.example is the template)
+.env
+.env.*
+!.env.example
+*.local
+
+# Logs & tooling
+*.log
+npm-debug.log*
+coverage
+.vite
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea
+.vscode/*
+!.vscode/extensions.json
