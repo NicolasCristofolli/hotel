@@ -1,40 +1,59 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { defaultHotelConfig } from '../config/defaultHotelConfig';
+import { HOTEL_ID, isRemote, supabase } from '../lib/supabase';
 import type { HotelConfig } from '../types';
 
 const STORAGE_KEY = 'guia-hospede:config:v1';
+const SAVE_DELAY = 800;
+
+export type SyncState =
+  | { status: 'local' } //  no Supabase configured — this browser only
+  | { status: 'loading' }
+  | { status: 'synced' }
+  | { status: 'saving' }
+  | { status: 'error'; message: string };
 
 type Ctx = {
   config: HotelConfig;
   setConfig: (updater: (prev: HotelConfig) => HotelConfig) => void;
   patch: <K extends keyof HotelConfig>(key: K, value: HotelConfig[K]) => void;
   reset: () => void;
+  sync: SyncState;
+  /** Retry a failed save. */
+  retry: () => void;
 };
 
 const HotelContext = createContext<Ctx | null>(null);
 
-function load(): HotelConfig {
+/** Merge a stored/remote config over the defaults so newly added keys get sensible values. */
+function normalize(parsed: Partial<HotelConfig> | null | undefined): HotelConfig | null {
+  if (!parsed || parsed.version !== defaultHotelConfig.version) return null;
+  return {
+    ...defaultHotelConfig,
+    ...parsed,
+    identity: { ...defaultHotelConfig.identity, ...parsed.identity },
+    theme: { ...defaultHotelConfig.theme, ...parsed.theme },
+  };
+}
+
+function loadCache(): HotelConfig {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return defaultHotelConfig;
-    const parsed = JSON.parse(raw) as Partial<HotelConfig>;
-    if (parsed.version !== defaultHotelConfig.version) return defaultHotelConfig;
-    // Shallow-merge so newly added config keys get sensible defaults.
-    return {
-      ...defaultHotelConfig,
-      ...parsed,
-      identity: { ...defaultHotelConfig.identity, ...parsed.identity },
-      theme: { ...defaultHotelConfig.theme, ...parsed.theme },
-    };
+    return normalize(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null')) ?? defaultHotelConfig;
   } catch {
     return defaultHotelConfig;
   }
 }
 
 export function HotelProvider({ children }: { children: ReactNode }) {
-  const [config, setState] = useState<HotelConfig>(load);
+  // The local cache renders instantly (and offline); the database is the source of truth when configured.
+  const [config, setState] = useState<HotelConfig>(loadCache);
+  const [sync, setSync] = useState<SyncState>(isRemote ? { status: 'loading' } : { status: 'local' });
+  const lastLocalEdit = useRef(0);
+  const saveTimer = useRef<ReturnType<typeof setTimeout>>();
+  const latest = useRef(config);
+  latest.current = config;
 
-  // Persist
+  // Persist cache
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
@@ -43,10 +62,73 @@ export function HotelProvider({ children }: { children: ReactNode }) {
     }
   }, [config]);
 
-  // Cross-tab live sync (admin in one tab, guest view in another)
+  // Remote: initial load + realtime updates from the admin
+  useEffect(() => {
+    if (!supabase) return;
+    const db = supabase;
+    let alive = true;
+
+    db.from('hotels')
+      .select('config')
+      .eq('id', HOTEL_ID)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (!alive) return;
+        if (error) return setSync({ status: 'error', message: `Não foi possível carregar do banco: ${error.message}` });
+        if (!data) return setSync({ status: 'error', message: `Hotel "${HOTEL_ID}" não encontrado no banco. Rode o SQL de instalação.` });
+        const remote = normalize(data.config as Partial<HotelConfig> | null);
+        // A null config means "never saved" — keep the defaults (first admin save creates it).
+        if (remote && Date.now() - lastLocalEdit.current > 3000) setState(remote);
+        setSync({ status: 'synced' });
+      });
+
+    const channel = db
+      .channel(`hotel:${HOTEL_ID}`)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'hotels', filter: `id=eq.${HOTEL_ID}` }, (payload) => {
+        // Ignore echoes while this browser is editing, so typing isn't overwritten by an older save.
+        if (Date.now() - lastLocalEdit.current < 3000) return;
+        const remote = normalize((payload.new as { config?: Partial<HotelConfig> }).config);
+        if (remote) setState(remote);
+      })
+      .subscribe();
+
+    return () => {
+      alive = false;
+      db.removeChannel(channel);
+    };
+  }, []);
+
+  const save = useCallback(async () => {
+    if (!supabase) return;
+    setSync({ status: 'saving' });
+    const { data, error } = await supabase.from('hotels').update({ config: latest.current }).eq('id', HOTEL_ID).select('id');
+    if (error) setSync({ status: 'error', message: `Erro ao salvar: ${error.message}` });
+    // RLS turns an unauthorized update into "0 rows" rather than an error.
+    else if (!data?.length) setSync({ status: 'error', message: 'Sem permissão para salvar. Entre com uma conta de administrador.' });
+    else setSync({ status: 'synced' });
+  }, []);
+
+  const scheduleSave = useCallback(() => {
+    lastLocalEdit.current = Date.now();
+    if (!supabase) return;
+    setSync({ status: 'saving' });
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(save, SAVE_DELAY);
+  }, [save]);
+
+  // Don't lose the last keystrokes when the tab closes mid-debounce.
+  useEffect(() => {
+    const flush = () => {
+      if (saveTimer.current && Date.now() - lastLocalEdit.current < SAVE_DELAY + 100) save();
+    };
+    window.addEventListener('pagehide', flush);
+    return () => window.removeEventListener('pagehide', flush);
+  }, [save]);
+
+  // Cross-tab live sync (local mode: admin in one tab, guest view in another)
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
-      if (e.key === STORAGE_KEY) setState(load());
+      if (e.key === STORAGE_KEY && !isRemote) setState(loadCache());
     };
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
@@ -66,11 +148,21 @@ export function HotelProvider({ children }: { children: ReactNode }) {
     document.title = `Guia do Hóspede — ${config.identity.name}`;
   }, [config.theme, config.identity.name]);
 
-  const setConfig = useCallback((updater: (prev: HotelConfig) => HotelConfig) => setState(updater), []);
-  const patch = useCallback(<K extends keyof HotelConfig>(key: K, value: HotelConfig[K]) => setState((p) => ({ ...p, [key]: value })), []);
-  const reset = useCallback(() => setState(defaultHotelConfig), []);
+  // Only the admin panel edits the config, so every edit is also a save.
+  const setConfig = useCallback(
+    (updater: (prev: HotelConfig) => HotelConfig) => {
+      setState(updater);
+      scheduleSave();
+    },
+    [scheduleSave],
+  );
+  const patch = useCallback(
+    <K extends keyof HotelConfig>(key: K, value: HotelConfig[K]) => setConfig((p) => ({ ...p, [key]: value })),
+    [setConfig],
+  );
+  const reset = useCallback(() => setConfig(() => defaultHotelConfig), [setConfig]);
 
-  const value = useMemo(() => ({ config, setConfig, patch, reset }), [config, setConfig, patch, reset]);
+  const value = useMemo(() => ({ config, setConfig, patch, reset, sync, retry: save }), [config, setConfig, patch, reset, sync, save]);
   return <HotelContext.Provider value={value}>{children}</HotelContext.Provider>;
 }
 

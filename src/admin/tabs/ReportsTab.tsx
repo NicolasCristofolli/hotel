@@ -2,6 +2,7 @@ import { CalendarPlus, Download, Info, MessageCircle, MousePointerClick, Sparkle
 import { useEffect, useMemo, useState } from 'react';
 import { store, type AnalyticsEvent, type AnalyticsType } from '../../lib/analytics';
 import { generateDemoData } from '../../lib/analyticsDemo';
+import { useAdminAccess } from '../../state/AdminAccess';
 import { useHotel } from '../../state/HotelContext';
 import { useToast } from '../../state/ToastContext';
 import { Card, Empty, Segmented } from '../ui';
@@ -43,11 +44,16 @@ export function ReportsTab() {
   const [period, setPeriod] = useState<Period>('7d');
   const [all, setAll] = useState<AnalyticsEvent[]>([]);
   const [tick, setTick] = useState(0);
+  const [loadError, setLoadError] = useState('');
+  const { canEdit } = useAdminAccess();
 
   useEffect(() => store.subscribe(() => setTick((t) => t + 1)), []);
   useEffect(() => {
     let alive = true;
-    store.query(0).then((d) => alive && setAll(d));
+    store
+      .query(0)
+      .then((d) => alive && (setAll(d), setLoadError('')))
+      .catch((e: Error) => alive && setLoadError(e.message));
     return () => {
       alive = false;
     };
@@ -147,9 +153,17 @@ export function ReportsTab() {
     toast('Dados de exemplo gerados', '30 dias de uso simulado');
   };
   const onClear = async () => {
-    if (!confirm('Apagar todos os dados de uso registrados?')) return;
-    await store.clear();
-    toast('Dados apagados');
+    const msg = store.local
+      ? 'Apagar todos os dados de uso registrados neste navegador?'
+      : 'Apagar PERMANENTEMENTE todo o histórico de uso de todos os hóspedes? Exporte o CSV antes se quiser guardar.';
+    if (!confirm(msg)) return;
+    try {
+      await store.clear();
+      setTick((t) => t + 1);
+      toast('Dados apagados');
+    } catch (e) {
+      toast('Não foi possível apagar', (e as Error).message);
+    }
   };
 
   return (
@@ -157,7 +171,7 @@ export function ReportsTab() {
       <div className="r-toolbar">
         <Segmented value={period} options={PERIODS} onChange={setPeriod} />
         <span className="grow" />
-        {all.length === 0 && (
+        {all.length === 0 && store.local && (
           <button className="a-btn a-btn-outline" onClick={onDemo}>
             <Sparkles size={16} /> Gerar dados de exemplo
           </button>
@@ -165,10 +179,18 @@ export function ReportsTab() {
         <button className="a-btn a-btn-outline" onClick={exportCsv} disabled={!events.length}>
           <Download size={16} /> Exportar CSV
         </button>
-        <button className="a-btn a-btn-ghost r-clear" onClick={onClear} disabled={!all.length}>
-          <Trash2 size={16} /> Limpar
-        </button>
+        {canEdit && (
+          <button className="a-btn a-btn-ghost r-clear" onClick={onClear} disabled={!all.length}>
+            <Trash2 size={16} /> Limpar
+          </button>
+        )}
       </div>
+
+      {loadError && (
+        <div className="a-alert" role="alert">
+          Não foi possível carregar os relatórios: {loadError}
+        </div>
+      )}
 
       {store.local && (
         <p className="r-note">

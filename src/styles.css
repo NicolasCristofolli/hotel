@@ -2115,28 +2115,6 @@ ol {
   font-size: 17px;
   font-weight: 600;
 }
-.drawer-admin {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-height: 52px;
-  padding-bottom: var(--safe-bottom);
-  border-top: 1px solid rgb(255 255 255 / 0.1);
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: rgb(255 255 255 / 0.55);
-  transition: color 0.2s;
-}
-.drawer-admin:hover {
-  color: var(--color-accent);
-}
-.drawer-admin:disabled {
-  cursor: default;
-  opacity: 0.5;
-}
 
 /* ── Toasts ──────────────────────────────────────────────── */
 .toast-stack {
@@ -2325,4 +2303,147 @@ ol {
   .a-chips {
     cursor: grab;
   }
+}
+
+/* Admin login (Supabase Auth) */
+.login-card {
+  text-align: left;
+}
+.login-card .pin-icon,
+.login-card h2,
+.login-card > p {
+  text-align: center;
+}
+.login-card > p:not(.login-error) {
+  margin-bottom: 18px;
+}
+.login-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+.login-field input {
+  height: 46px;
+  padding: 0 14px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--color-surface);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 400;
+  color: var(--color-text-main);
+}
+.login-field input:focus {
+  outline: 2px solid color-mix(in srgb, var(--color-accent) 60%, transparent);
+  outline-offset: 1px;
+}
+.login-card .login-error {
+  min-height: 20px;
+  margin: 10px 0 6px;
+  font-size: 13px;
+  color: #b23a2b;
+  text-align: center;
+}
+.login-cancel {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  padding: 8px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+/* Admin auth steps */
+.login-card .login-sub {
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--color-text-muted);
+  margin: 4px 0 16px;
+}
+.login-notice {
+  margin: 0 0 6px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 12.5px;
+  text-align: center;
+  background: var(--primary-soft);
+  color: var(--color-text-main);
+}
+.login-links {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 12px;
+}
+.login-links:has(> :only-child) {
+  justify-content: center;
+}
+.login-links button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 2px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+.login-links button:hover {
+  color: var(--color-text-main);
+  text-decoration: underline;
+}
+.login-help {
+  margin: 10px 0 0;
+  font-size: 12px;
+  text-align: center;
+  color: var(--color-text-muted);
+}
+.login-field input.login-code {
+  text-align: center;
+  font-size: 24px;
+  letter-spacing: 0.3em;
+  font-variant-numeric: tabular-nums;
+}
+.mfa-qr {
+  display: grid;
+  place-items: center;
+  width: 184px;
+  height: 184px;
+  margin: 0 auto 4px;
+  padding: 8px;
+  border-radius: 16px;
+  background: #fff;
+  border: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+.mfa-qr img {
+  width: 100%;
+  height: 100%;
+}
+.mfa-secret {
+  font-size: 12px;
+  text-align: center;
+  color: var(--color-text-muted);
+}
+.mfa-secret summary {
+  cursor: pointer;
+}
+.mfa-secret code {
+  display: block;
+  margin-top: 6px;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--color-surface);
+  font-size: 12.5px;
+  letter-spacing: 0.08em;
+  word-break: break-all;
+  user-select: all;
+}
+.turnstile {
+  margin-top: 14px;
+  min-height: 65px;
 }

@@ -1,5 +1,7 @@
 import { Check, ImagePlus, Trash2 } from 'lucide-react';
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
+import { storeImage } from '../../lib/assets';
+import { useToast } from '../../state/ToastContext';
 import { PALETTE_PRESETS } from '../../config/defaultHotelConfig';
 import { useHotel } from '../../state/HotelContext';
 import type { Identity, ThemeColors } from '../../types';
@@ -164,7 +166,21 @@ function readLogo(file: File): Promise<string> {
 
 function LogoField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const input = useRef<HTMLInputElement>(null);
+  const toast = useToast();
+  const [uploading, setUploading] = useState(false);
   const isUrl = value && !value.startsWith('data:');
+
+  const upload = async (f: File) => {
+    setUploading(true);
+    try {
+      onChange(await storeImage(await readLogo(f), 'logo'));
+      toast('Logo atualizada');
+    } catch (e) {
+      toast('Falha ao enviar a logo', (e as Error).message);
+    } finally {
+      setUploading(false);
+    }
+  };
 
   return (
     // A <div>, not <Field>'s <label>: clicking the caption must not open the file picker.
@@ -177,8 +193,8 @@ function LogoField({ value, onChange }: { value: string; onChange: (v: string) =
           </div>
         )}
         <div className="a-logo-actions">
-          <button type="button" className="a-btn a-btn-outline" onClick={() => input.current?.click()}>
-            <ImagePlus size={16} /> Enviar imagem
+          <button type="button" className="a-btn a-btn-outline" onClick={() => input.current?.click()} disabled={uploading}>
+            <ImagePlus size={16} /> {uploading ? 'Enviando…' : 'Enviar imagem'}
           </button>
           {value && (
             <button type="button" className="a-btn a-btn-danger" onClick={() => onChange('')}>
@@ -195,7 +211,7 @@ function LogoField({ value, onChange }: { value: string; onChange: (v: string) =
           onChange={async (e) => {
             const f = e.target.files?.[0];
             e.target.value = '';
-            if (f) onChange(await readLogo(f));
+            if (f) upload(f);
           }}
         />
       </div>

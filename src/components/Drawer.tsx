@@ -1,17 +1,15 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { ChevronRight, Home, LockKeyhole, MessageCircle, X } from 'lucide-react';
+import { ChevronRight, Home, MessageCircle, X } from 'lucide-react';
 import { useEffect } from 'react';
 import { Icon } from '../lib/icons';
 import { useRunQuickAction } from '../lib/quickActions';
 import { BrandMark } from './BrandMark';
-import { useAdminAccess } from '../state/AdminAccess';
 import { useGuest } from '../state/GuestContext';
 import { useHotel } from '../state/HotelContext';
 
 export function Drawer() {
   const { config } = useHotel();
-  const { drawerOpen, setDrawerOpen, navigate, route, setContactOpen, embedded } = useGuest();
-  const { requestAdmin } = useAdminAccess();
+  const { drawerOpen, setDrawerOpen, navigate, route, setContactOpen } = useGuest();
   const run = useRunQuickAction();
   const id = config.identity;
 
@@ -117,18 +115,6 @@ export function Drawer() {
                 </div>
               </div>
             </div>
-
-            <button
-              className="drawer-admin"
-              onClick={() => {
-                setDrawerOpen(false);
-                if (!embedded) requestAdmin();
-              }}
-              disabled={embedded}
-            >
-              <LockKeyhole size={14} strokeWidth={1.5} />
-              Painel Administrativo
-            </button>
           </motion.nav>
         </div>
       )}

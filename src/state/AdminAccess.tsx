@@ -1,19 +1,48 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { Delete, Lock } from 'lucide-react';
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { AdminLogin } from '../admin/auth/AdminLogin';
+import {
+  authMessage,
+  IDLE_LIMIT_MS,
+  isFullyAuthenticated,
+  LAST_ACTIVITY_KEY,
+  LOGOUT_REASON_KEY,
+  RECOVERY_KEY,
+  type AdminRole,
+} from '../lib/adminAuth';
+import { supabase } from '../lib/supabase';
 
+export type { AdminRole } from '../lib/adminAuth';
+
+/** Local demo mode only (no Supabase configured). Checked in the browser — not real security. */
 const DEMO_PIN = '1234';
 const SESSION_KEY = 'guia-hospede:admin-unlocked';
 
-type Ctx = { unlocked: boolean; requestAdmin: () => void; lock: () => void; isAdminRoute: boolean; exitAdmin: () => void };
+type Ctx = {
+  unlocked: boolean;
+  role: AdminRole | null;
+  email: string | null;
+  canEdit: boolean;
+  lock: () => void;
+  isAdminRoute: boolean;
+  exitAdmin: () => void;
+};
 const AdminAccessContext = createContext<Ctx | null>(null);
 
 const isAdminHash = () => /^#\/?admin/.test(window.location.hash);
 
+const lastActivity = () => Number(localStorage.getItem(LAST_ACTIVITY_KEY) || 0);
+const markActivity = () => localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
+
 export function AdminAccessProvider({ children }: { children: ReactNode }) {
-  const [unlocked, setUnlocked] = useState(() => sessionStorage.getItem(SESSION_KEY) === '1');
+  const [role, setRole] = useState<AdminRole | null>(() => (!supabase && sessionStorage.getItem(SESSION_KEY) === '1' ? 'demo' : null));
+  const [email, setEmail] = useState<string | null>(null);
+  const [checking, setChecking] = useState(!!supabase);
   const [isAdminRoute, setIsAdminRoute] = useState(isAdminHash);
-  const [pinOpen, setPinOpen] = useState(false);
+  const [promptOpen, setPromptOpen] = useState(false);
+  const [linkError, setLinkError] = useState('');
+  const unlocked = role !== null;
 
   useEffect(() => {
     const onHash = () => setIsAdminRoute(isAdminHash());
@@ -21,15 +50,61 @@ export function AdminAccessProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
-  // Direct visit to #/admin while locked → ask for the PIN
+  // Supabase session → role (only once password + 2FA are done)
   useEffect(() => {
-    if (isAdminRoute && !unlocked) setPinOpen(true);
-  }, [isAdminRoute, unlocked]);
+    if (!supabase) return;
+    const db = supabase;
+    let alive = true;
+    const resolve = async () => {
+      const { data } = await db.auth.getSession();
+      if (!alive) return;
+      setEmail(data.session?.user.email ?? null);
+      setRole(data.session ? await isFullyAuthenticated() : null);
+      setChecking(false);
+    };
 
-  const requestAdmin = useCallback(() => {
-    if (unlocked) window.location.hash = '/admin';
-    else setPinOpen(true);
-  }, [unlocked]);
+    (async () => {
+      const url = new URL(window.location.href);
+      const code = url.searchParams.get('code');
+      // "Esqueci minha senha" link → exchange the one-time code, then ask for a new password (after 2FA).
+      if (code && url.searchParams.get('reset') === '1') {
+        url.searchParams.delete('code');
+        url.searchParams.delete('reset');
+        history.replaceState(null, '', `${url.pathname}${url.search}#/admin`);
+        setIsAdminRoute(true);
+        const { error } = await db.auth.exchangeCodeForSession(code);
+        if (error) setLinkError(authMessage(error));
+        else {
+          sessionStorage.setItem(RECOVERY_KEY, '1');
+          markActivity();
+        }
+      } else {
+        // Session left open in a closed tab for too long → end it.
+        const { data } = await db.auth.getSession();
+        if (data.session && Date.now() - lastActivity() > IDLE_LIMIT_MS) {
+          sessionStorage.setItem(LOGOUT_REASON_KEY, 'idle');
+          await db.auth.signOut();
+        }
+      }
+      await resolve();
+    })();
+
+    const { data: sub } = db.auth.onAuthStateChange((event) => {
+      if (event === 'INITIAL_SESSION') return;
+      // Never await Supabase calls inside this callback (it can deadlock the auth lock).
+      setTimeout(resolve, 0);
+    });
+    return () => {
+      alive = false;
+      sub.subscription.unsubscribe();
+    };
+  }, []);
+
+  // Direct visit to #/admin while locked → ask for credentials; leaving the route closes it.
+  useEffect(() => {
+    if (!isAdminRoute) setPromptOpen(false);
+    else if (!unlocked && !checking) setPromptOpen(true);
+  }, [isAdminRoute, unlocked, checking]);
 
   const exitAdmin = useCallback(() => {
     window.location.hash = '/';
@@ -37,29 +112,67 @@ export function AdminAccessProvider({ children }: { children: ReactNode }) {
 
   const lock = useCallback(() => {
     sessionStorage.removeItem(SESSION_KEY);
-    setUnlocked(false);
+    sessionStorage.removeItem(RECOVERY_KEY);
+    supabase?.auth.signOut();
+    setRole(null);
     window.location.hash = '/';
   }, []);
 
-  const onSuccess = () => {
-    sessionStorage.setItem(SESSION_KEY, '1');
-    setUnlocked(true);
-    setPinOpen(false);
+  // ── Auto logout after 30 min without activity (shared across admin tabs) ──
+  const lastWrite = useRef(0);
+  useEffect(() => {
+    if (!supabase || !unlocked) return;
+    markActivity();
+    const onActivity = () => {
+      const now = Date.now();
+      if (now - lastWrite.current > 15_000) {
+        lastWrite.current = now;
+        markActivity();
+      }
+    };
+    const events = ['pointerdown', 'keydown', 'wheel', 'touchstart'] as const;
+    events.forEach((e) => window.addEventListener(e, onActivity, { passive: true }));
+    const timer = setInterval(() => {
+      if (Date.now() - lastActivity() > IDLE_LIMIT_MS) {
+        sessionStorage.setItem(LOGOUT_REASON_KEY, 'idle');
+        supabase?.auth.signOut();
+        setRole(null); // stays on #/admin → the login opens with the reason
+      }
+    }, 20_000);
+    return () => {
+      events.forEach((e) => window.removeEventListener(e, onActivity));
+      clearInterval(timer);
+    };
+  }, [unlocked]);
+
+  const onSuccess = (r: AdminRole) => {
+    if (r === 'demo') sessionStorage.setItem(SESSION_KEY, '1');
+    markActivity();
+    setLinkError('');
+    setRole(r);
+    setPromptOpen(false);
     window.location.hash = '/admin';
   };
 
   const onCancel = () => {
-    setPinOpen(false);
+    setPromptOpen(false);
+    setLinkError('');
     if (isAdminHash()) {
       history.replaceState(null, '', '#/');
       setIsAdminRoute(false);
     }
   };
 
+  const canEdit = role === 'owner' || role === 'admin' || role === 'demo';
+
   return (
-    <AdminAccessContext.Provider value={{ unlocked, requestAdmin, lock, isAdminRoute, exitAdmin }}>
+    <AdminAccessContext.Provider value={{ unlocked, role, email, canEdit, lock, isAdminRoute, exitAdmin }}>
       {children}
-      <PinModal open={pinOpen} onSuccess={onSuccess} onCancel={onCancel} />
+      {supabase ? (
+        <AdminLogin open={promptOpen} initialError={linkError} onSuccess={onSuccess} onCancel={onCancel} />
+      ) : (
+        <PinModal open={promptOpen} onSuccess={() => onSuccess('demo')} onCancel={onCancel} />
+      )}
     </AdminAccessContext.Provider>
   );
 }
@@ -144,7 +257,7 @@ function PinModal({ open, onSuccess, onCancel }: { open: boolean; onSuccess: () 
                 <span key={i} className={i < pin.length ? 'filled' : ''} />
               ))}
             </motion.div>
-            <p className="pin-hint">{error ? 'PIN incorreto. Tente novamente.' : 'Demonstração: PIN 1234'}</p>
+            <p className="pin-hint">{error ? 'PIN incorreto. Tente novamente.' : 'Modo demonstração (sem banco): PIN 1234'}</p>
             <div className="pin-pad">
               {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((d) => (
                 <button key={d} onClick={() => press(d)}>

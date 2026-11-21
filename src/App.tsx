@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { LayoutDashboard, QrCode, Smartphone } from 'lucide-react';
+import { QrCode, Smartphone } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { AdminPanel } from './admin/AdminPanel';
 import { BrandMark } from './components/BrandMark';
@@ -32,7 +32,6 @@ function Root() {
 /** Mobile: full-bleed portal. Desktop: centered luxury app shell over an editorial backdrop. */
 function GuestStage() {
   const { config } = useHotel();
-  const { requestAdmin } = useAdminAccess();
   const id = config.identity;
   const portalUrl = `${window.location.origin}${window.location.pathname}`;
 
@@ -73,9 +72,6 @@ function GuestStage() {
             <Smartphone size={14} strokeWidth={1.5} /> Otimizado para mobile
           </span>
         </div>
-        <button className="btn btn-glass" onClick={requestAdmin}>
-          <LayoutDashboard size={18} strokeWidth={1.5} /> Abrir Painel Admin
-        </button>
       </aside>
     </div>
   );

@@ -5,7 +5,9 @@
  * Storage goes through `AnalyticsStore`, so moving from this browser (localStorage)
  * to a shared database (Supabase) only means swapping `store` — screens stay the same.
  */
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { useCallback } from 'react';
+import { HOTEL_ID, supabase } from './supabase';
 import { useGuest } from '../state/GuestContext';
 
 export type AnalyticsType =
@@ -87,7 +89,80 @@ class LocalStore implements AnalyticsStore {
   }
 }
 
-export const store: AnalyticsStore = new LocalStore();
+/** Shared database: guests only insert (batched); admins read via RLS. */
+class SupabaseStore implements AnalyticsStore {
+  readonly local = false;
+  private queue: AnalyticsEvent[] = [];
+  private timer: ReturnType<typeof setTimeout> | undefined;
+  constructor(private db: SupabaseClient) {
+    const flushNow = () => this.flush();
+    window.addEventListener('pagehide', flushNow);
+    document.addEventListener('visibilitychange', () => document.visibilityState === 'hidden' && flushNow());
+  }
+  record(e: AnalyticsEvent) {
+    this.recordMany([e]);
+  }
+  recordMany(list: AnalyticsEvent[]) {
+    this.queue.push(...list);
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.flush(), 2000);
+  }
+  private async flush() {
+    if (!this.queue.length) return;
+    const batch = this.queue.splice(0, this.queue.length);
+    // `ts` is set by the database (server time) — clients can't backdate events.
+    const rows = batch.map((e) => ({
+      hotel_id: HOTEL_ID,
+      type: e.type,
+      target: e.target.slice(0, 80),
+      label: e.label.slice(0, 120),
+      sid: e.sid.slice(0, 40),
+    }));
+    const { error } = await this.db.from('analytics_events').insert(rows);
+    if (error && this.queue.length < 500) this.queue.unshift(...batch); // retry on the next flush
+  }
+  async query(fromTs: number) {
+    const out: AnalyticsEvent[] = [];
+    const PAGE = 1000;
+    for (let i = 0; i < 100; i++) {
+      const { data, error } = await this.db
+        .from('analytics_events')
+        .select('type,target,label,sid,ts')
+        .eq('hotel_id', HOTEL_ID)
+        .gte('ts', new Date(fromTs).toISOString())
+        .order('ts', { ascending: true })
+        .range(i * PAGE, i * PAGE + PAGE - 1);
+      if (error) throw new Error(error.message);
+      for (const r of data) out.push({ ...(r as Omit<AnalyticsEvent, 'ts'>), ts: Date.parse(r.ts as string) });
+      if (data.length < PAGE) break;
+    }
+    return out;
+  }
+  async clear() {
+    const { error } = await this.db.from('analytics_events').delete().eq('hotel_id', HOTEL_ID);
+    if (error) throw new Error(error.message);
+  }
+  subscribe(cb: () => void) {
+    let t: ReturnType<typeof setTimeout> | undefined;
+    const throttled = () => {
+      if (!t) t = setTimeout(() => ((t = undefined), cb()), 5000);
+    };
+    const ch = this.db
+      .channel(`analytics:${HOTEL_ID}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'analytics_events', filter: `hotel_id=eq.${HOTEL_ID}` },
+        throttled,
+      )
+      .subscribe();
+    return () => {
+      clearTimeout(t);
+      this.db.removeChannel(ch);
+    };
+  }
+}
+
+export const store: AnalyticsStore = supabase ? new SupabaseStore(supabase) : new LocalStore();
 
 // ── Recording ────────────────────────────────────────────
 const SID_KEY = 'guia-hospede:sid';

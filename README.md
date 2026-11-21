@@ -2,7 +2,7 @@
 
 Portal mobile para hóspedes de hotel (acessado por QR Code) + painel administrativo para a equipe.
 
-**Stack:** React 18 · TypeScript · Vite · Framer Motion · Lucide. Sem backend por enquanto (estado em `localStorage`) — a integração com Supabase está planejada (veja [Roadmap](#roadmap)).
+**Stack:** React 18 · TypeScript · Vite · Framer Motion · Lucide. **Supabase** (banco, login, tempo real e arquivos). Sem as variáveis do Supabase, roda em _modo demonstração_ (dados no `localStorage`, PIN 1234).
 
 ## Começando
 
@@ -32,14 +32,14 @@ Build command `npm run build`, output `dist`. As rotas usam hash (`#/mapa`), ent
 
 ## Rotas
 
-| Rota                                                                 | Tela                                      |
-| -------------------------------------------------------------------- | ----------------------------------------- |
-| `#/`                                                                 | Início — Portal do Hóspede                |
-| `#/servicos` · `#/servicos?c=gastronomia` · `#/servicos/restaurante` | Horários, Gastronomia & Drinks            |
-| `#/programacao`                                                      | Programação do Hotel                      |
-| `#/mapa` · `#/mapa/p4`                                               | Mapa Interativo (com foco no pino)        |
-| `#/experience/spa` · `concierge` · `transfer`                        | Detalhe de experiência                    |
-| `#/admin`                                                            | Painel Administrativo (PIN demo **1234**) |
+| Rota                                                                 | Tela                                                                 |
+| -------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `#/`                                                                 | Início — Portal do Hóspede                                           |
+| `#/servicos` · `#/servicos?c=gastronomia` · `#/servicos/restaurante` | Horários, Gastronomia & Drinks                                       |
+| `#/programacao`                                                      | Programação do Hotel                                                 |
+| `#/mapa` · `#/mapa/p4`                                               | Mapa Interativo (com foco no pino)                                   |
+| `#/experience/spa` · `concierge` · `transfer`                        | Detalhe de experiência                                               |
+| `#/admin`                                                            | Painel Administrativo — só pelo link direto (não há botão no portal) |
 
 ## Painel administrativo
 
@@ -80,20 +80,71 @@ src/
 telefone ou quarto). Cliques feitos na pré-visualização do admin não contam. O armazenamento passa pela interface
 `AnalyticsStore`: hoje é `localStorage` (dados só do navegador atual); com Supabase, troca-se apenas a implementação.
 
-## Segurança — estado atual
+## Supabase
 
-⚠️ **Ainda não está pronto para produção com dados reais:**
+### Instalação (uma vez por projeto)
 
-- O PIN do painel é verificado no navegador — é só uma demonstração, não é segurança.
-- As edições ficam no `localStorage` de quem editou e **não chegam aos celulares dos hóspedes**.
+1. **SQL Editor → New query:** cole e rode `supabase/migrations/0001_init.sql`. Cria as tabelas, as regras de segurança (RLS),
+   o tempo real, o bucket de imagens e o hotel inicial `vale-sereno`. Pode rodar de novo sem problemas.
+2. **Authentication → Users → Add user → Create new user:** e-mail + senha forte, marque _Auto Confirm User_.
+3. **SQL Editor:** abra `supabase/02_add_admin.sql`, troque o e-mail e rode, para dar acesso ao hotel.
+4. **Authentication → Sign In / Providers:** desative _Allow new users to sign up_. Só quem você cadastrar entra.
+5. Crie o `.env.local` a partir do `.env.example` (URL do projeto + _publishable key_). Na hospedagem, configure as mesmas variáveis.
 
-Ambos são resolvidos pela migração para o Supabase abaixo. Nunca coloque a _secret key_ do Supabase em variáveis
-`VITE_*` nem no repositório — tudo com prefixo `VITE_` vai para o navegador.
+### Segurança do login (uma vez)
+
+6. **SQL Editor:** rode `supabase/migrations/0002_require_mfa.sql` — o banco passa a exigir 2FA para editar e ver relatórios.
+7. **Authentication → URL Configuration:** _Site URL_ = endereço do site (ex.: `https://seu-site.vercel.app`) e, em
+   _Redirect URLs_, adicione `https://seu-site.vercel.app/**` e `http://localhost:5173/**` (usado pelo "Esqueci minha senha").
+8. **Authentication → Providers → Email:** senha mínima de 10 caracteres, exigindo letras e números.
+9. **E-mails (recuperação de senha):** o envio padrão do Supabase só entrega para membros da equipe do projeto e tem limite
+   baixo por hora. Para produção, configure um SMTP próprio em _Authentication → Emails → SMTP Settings_ (ex.: Resend, Brevo).
+10. **CAPTCHA (opcional, nesta ordem):**
+    1. Cloudflare → Turnstile → _Add widget_ com o domínio do site (e `localhost`) → copie a _Site Key_ e a _Secret Key_.
+    2. Na Vercel, crie `VITE_TURNSTILE_SITE_KEY` com a Site Key e faça **Redeploy**.
+    3. Só então: Supabase → _Authentication → Attack Protection → Enable Captcha protection_ → Turnstile → cole a Secret Key.
+       (Se ativar no Supabase antes do site ter a chave, ninguém consegue entrar.)
+
+### Fluxo de login da equipe
+
+1. E-mail + senha (+ CAPTCHA, se ativo).
+2. **2FA obrigatória:** no primeiro acesso, a pessoa escaneia um QR Code no app autenticador (Google/Microsoft Authenticator,
+   1Password); depois, digita o código de 6 dígitos a cada login.
+3. **Saída automática** após 30 min sem uso (vale para todas as abas do admin).
+4. **Esqueci minha senha:** link por e-mail → código 2FA → nova senha. O link deve ser aberto no mesmo navegador em que foi pedido.
+
+**Perdeu o celular?** O proprietário roda o trecho comentado no fim de `0002_require_mfa.sql` (apaga a 2FA daquele usuário);
+no próximo login ele cadastra o app de novo.
+
+### Como os dados fluem
+
+| Tabela / recurso       | Hóspede (anônimo)   | Admin logado                          |
+| ---------------------- | ------------------- | ------------------------------------- |
+| `hotels.config`        | lê + recebe ao vivo | edita (salva sozinho em ~1 s)         |
+| `analytics_events`     | só insere           | lê relatórios · owner/admin apagam    |
+| `hotel_admins`         | —                   | vê o próprio vínculo                  |
+| Storage `hotel-assets` | lê (público)        | envia/apaga arquivos do próprio hotel |
+
+Papéis: **owner** e **admin** editam tudo; **staff** vê só os Relatórios.
+
+## Segurança
+
+- Login com e-mail e senha + **verificação em 2 etapas obrigatória** (TOTP), CAPTCHA opcional e saída automática por inatividade.
+- As permissões são aplicadas **no banco** (RLS) e exigem sessão com 2FA (`aal2`): mesmo com a senha vazada, sem o código
+  ninguém edita nem lê relatórios — nem chamando a API direto.
+- O portal não tem links para o painel; a equipe acessa por `/#/admin`.
+- A _publishable key_ é pública por design. **A _secret key_ (`sb_secret_…`) e a senha do banco nunca entram no código,
+  no `.env` ou no git** — tudo com prefixo `VITE_` vai para o navegador.
+- Analytics são anônimos (sem nome, telefone ou quarto) e o horário é definido pelo servidor.
 
 ## Roadmap
 
-- [ ] Supabase: configuração do hotel no banco + atualização ao vivo nos celulares
-- [ ] Login de administradores (Supabase Auth) no lugar do PIN, com regras RLS (hóspede só lê; admin edita)
-- [ ] Analytics agregados de todos os hóspedes no banco
-- [ ] Upload de logos/fotos no Supabase Storage
-- [ ] Multi-hotel (`hotel_id` + RLS por hotel) e perfis de acesso
+- [x] Configuração no banco + atualização ao vivo
+- [x] Login de administradores + RLS + papéis
+- [x] Analytics de todos os hóspedes no banco
+- [x] Upload de logo no Storage
+- [ ] Upload das demais fotos (banner, serviços, mapa) pelo painel
+- [x] 2FA obrigatória, recuperação de senha, CAPTCHA e logout por inatividade
+- [ ] Gestão de usuários pelo próprio painel (convites, papéis, redefinir 2FA)
+- [ ] Multi-hotel (um site para vários hotéis por subdomínio)
+- [ ] Relatórios agregados no banco (para volumes muito grandes)

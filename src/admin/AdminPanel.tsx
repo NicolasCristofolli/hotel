@@ -32,12 +32,14 @@ export function AdminPanel() {
 }
 
 function AdminInner() {
-  const { config, reset } = useHotel();
-  const { exitAdmin, lock } = useAdminAccess();
+  const { config, reset, sync, retry } = useHotel();
+  const { exitAdmin, lock, canEdit, email, role } = useAdminAccess();
   const toast = useToast();
-  const [tab, setTab] = useState<(typeof TABS)[number]['id']>('identity');
+  // Staff accounts only see the reports.
+  const tabs = canEdit ? TABS : TABS.filter((t) => t.id === 'reports');
+  const [tab, setTab] = useState<(typeof TABS)[number]['id']>(canEdit ? 'identity' : 'reports');
   const [previewOpen, setPreviewOpen] = useState(false);
-  const current = TABS.find((t) => t.id === tab)!;
+  const current = tabs.find((t) => t.id === tab) ?? tabs[0];
 
   const onReset = () => {
     if (confirm('Restaurar todos os dados para o padrão de fábrica? As alterações serão perdidas.')) {
@@ -61,7 +63,7 @@ function AdminInner() {
           </div>
         </div>
         <nav className="a-tabs" aria-label="Seções">
-          {TABS.map((t) => (
+          {tabs.map((t) => (
             <button key={t.id} className={`a-tab ${tab === t.id ? 'on' : ''}`} onClick={() => setTab(t.id)}>
               {tab === t.id && (
                 <motion.span layoutId="a-tab-bg" className="a-tab-bg" transition={{ type: 'spring', stiffness: 420, damping: 36 }} />
@@ -75,9 +77,17 @@ function AdminInner() {
           ))}
         </nav>
         <div className="a-side-foot">
-          <button className="a-btn a-btn-ghost" onClick={onReset}>
-            <RotateCcw size={16} /> Restaurar Padrão
-          </button>
+          {canEdit && (
+            <button className="a-btn a-btn-ghost" onClick={onReset}>
+              <RotateCcw size={16} /> Restaurar Padrão
+            </button>
+          )}
+          {email && (
+            <p className="a-user" title={email}>
+              {email}
+              <small>{ROLE_LABEL[role ?? 'admin']}</small>
+            </p>
+          )}
           <button className="a-btn a-btn-ghost" onClick={lock}>
             <LogOut size={16} /> Sair do painel
           </button>
@@ -91,12 +101,12 @@ function AdminInner() {
             <h1>{current.label}</h1>
           </div>
           <div className="a-topbar-actions">
-            <span className="a-sync">
-              <i /> Sincronizado em tempo real
-            </span>
-            <button className="a-btn a-btn-outline a-mobile-only" onClick={onReset} aria-label="Restaurar Padrão">
-              <RotateCcw size={16} /> Restaurar
-            </button>
+            <SyncBadge />
+            {canEdit && (
+              <button className="a-btn a-btn-outline a-mobile-only" onClick={onReset} aria-label="Restaurar Padrão">
+                <RotateCcw size={16} /> Restaurar
+              </button>
+            )}
             <button className="a-btn a-btn-outline a-mobile-only" onClick={lock} aria-label="Sair do painel">
               <LogOut size={16} />
             </button>
@@ -108,6 +118,15 @@ function AdminInner() {
             </button>
           </div>
         </header>
+
+        {sync.status === 'error' && (
+          <div className="a-alert" role="alert">
+            <span>{sync.message}</span>
+            <button className="a-btn a-btn-outline" onClick={retry}>
+              Tentar de novo
+            </button>
+          </div>
+        )}
 
         <motion.div
           key={tab}
@@ -135,5 +154,29 @@ function AdminInner() {
         </div>
       </aside>
     </div>
+  );
+}
+
+const ROLE_LABEL: Record<string, string> = {
+  owner: 'Proprietário',
+  admin: 'Administrador',
+  staff: 'Equipe (relatórios)',
+  demo: 'Demonstração',
+};
+
+function SyncBadge() {
+  const { sync } = useHotel();
+  const map = {
+    local: { cls: 'warn', text: 'Modo local • só neste navegador' },
+    loading: { cls: 'busy', text: 'Carregando…' },
+    saving: { cls: 'busy', text: 'Salvando…' },
+    synced: { cls: '', text: 'Salvo • publicado ao vivo' },
+    error: { cls: 'err', text: 'Não salvo' },
+  } as const;
+  const m = map[sync.status];
+  return (
+    <span className={`a-sync ${m.cls}`} title={sync.status === 'error' ? sync.message : undefined}>
+      <i /> {m.text}
+    </span>
   );
 }
