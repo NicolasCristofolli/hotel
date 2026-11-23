@@ -6,8 +6,8 @@
 //  Por que uma Edge Function: criar usuários exige a chave secreta do Supabase, que nunca pode
 //  ir para o navegador. Todo o resto do super admin usa funções SQL (migrations/0006_platform.sql).
 //
-//  Em vez de mandar e-mail (o envio padrão do Supabase só entrega para a equipe do projeto),
-//  devolve um LINK de acesso para o super admin enviar por WhatsApp/e-mail próprio.
+//  Em vez de mandar e-mail, devolve um LINK de acesso para o super admin enviar por WhatsApp/e-mail.
+//  Com { password_reset: true }, gera um link de nova senha para quem já usa o sistema (não muda o papel).
 //
 //  Deploy (dashboard): Edge Functions → Deploy a new function → Via Editor → nome "invite-admin" →
 //  cole este arquivo → Deploy. Depois, nos detalhes da função, DESLIGUE "Verify JWT" (a função
@@ -47,7 +47,7 @@ Deno.serve(async (req) => {
   const { data: allowed, error: authErr } = await asCaller.rpc('is_platform_admin');
   if (authErr || allowed !== true) return json({ error: 'Acesso negado: apenas administradores da plataforma (com 2FA).' }, 403);
 
-  let body: { hotel_id?: string; email?: string; role?: string; redirect_to?: string };
+  let body: { hotel_id?: string; email?: string; role?: string; redirect_to?: string; password_reset?: boolean };
   try {
     body = await req.json();
   } catch {
@@ -81,7 +81,15 @@ Deno.serve(async (req) => {
 
   let userId = existing?.user_id;
   let link: string | null = null;
-  let status: 'invited' | 'pending' | 'linked';
+  let status: 'invited' | 'pending' | 'linked' | 'reset';
+
+  if (body.password_reset === true) {
+    // "Esqueceu a senha": link de uso único para criar uma nova (depois de confirmar a 2FA). Só para quem já tem conta.
+    if (!existing) return json({ error: 'Este e-mail não tem conta.' }, 400);
+    const { data, error } = await admin.auth.admin.generateLink({ type: 'recovery', email, options: { redirectTo } });
+    if (error) return json({ error: `Não foi possível gerar o link: ${error.message}` }, 400);
+    return json({ status: 'reset', link: data.properties.action_link, email });
+  }
 
   if (!existing) {
     // Novo usuário: cria a conta e gera o link de convite (a pessoa cria a senha e a 2FA ao abrir).

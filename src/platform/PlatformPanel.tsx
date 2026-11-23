@@ -4,6 +4,7 @@ import {
   ChevronDown,
   Copy,
   ExternalLink,
+  KeyRound,
   Hotel,
   Loader2,
   LogOut,
@@ -18,6 +19,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Card, Empty, Field, Input, Select } from '../admin/ui';
+import { MIGRATION_FILE, useSchemaOutdated } from '../lib/schema';
 import { RESERVED } from '../lib/tenant';
 import { useAdminAccess } from '../state/AdminAccess';
 import { ToastProvider, useToast } from '../state/ToastContext';
@@ -72,6 +74,7 @@ function PlatformInner() {
   const [query, setQuery] = useState('');
   const [creating, setCreating] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
+  const outdated = useSchemaOutdated();
 
   const load = useCallback(async () => {
     try {
@@ -104,6 +107,13 @@ function PlatformInner() {
       </header>
 
       <main className="pf-main">
+        {outdated && (
+          <div className="a-alert" role="alert">
+            <span>
+              <strong>Banco desatualizado:</strong> falta rodar <code>{MIGRATION_FILE}</code> no SQL Editor do Supabase.
+            </span>
+          </div>
+        )}
         {error && (
           <div className="a-alert" role="alert">
             <span>{error}</span>
@@ -321,6 +331,20 @@ function HotelDetail({ hotel: h, onChanged, onDeleted }: { hotel: PlatformHotel;
   const [name, setName] = useState(h.name);
   const [admins, setAdmins] = useState<HotelAdmin[] | null>(null);
   const [error, setError] = useState('');
+  const [resetLink, setResetLink] = useState<InviteResult | null>(null);
+  const [resetBusy, setResetBusy] = useState('');
+
+  const passwordLink = async (email: string) => {
+    setResetBusy(email);
+    setResetLink(null);
+    try {
+      setResetLink(await platformApi.passwordLink(h.id, email));
+    } catch (e) {
+      toast('Não foi possível gerar o link', (e as Error).message);
+    } finally {
+      setResetBusy('');
+    }
+  };
 
   const loadAdmins = useCallback(async () => {
     try {
@@ -428,6 +452,16 @@ function HotelDetail({ hotel: h, onChanged, onDeleted }: { hotel: PlatformHotel;
                 ))}
               </Select>
               <div className="pf-admin-actions">
+                {a.last_sign_in_at && (
+                  <button
+                    className="a-btn a-btn-outline"
+                    disabled={!!resetBusy}
+                    onClick={() => passwordLink(a.email)}
+                    title="Para quem esqueceu a senha: link de uso único para criar uma nova"
+                  >
+                    {resetBusy === a.email ? <Loader2 size={14} className="spin" /> : <KeyRound size={14} />} Nova senha
+                  </button>
+                )}
                 {a.has_2fa && (
                   <button
                     className="a-btn a-btn-outline"
@@ -455,6 +489,8 @@ function HotelDetail({ hotel: h, onChanged, onDeleted }: { hotel: PlatformHotel;
           ))}
         </ul>
       )}
+
+      {resetLink && <LinkResult hotel={h} result={resetLink} />}
 
       <Invite
         hotel={h}
@@ -496,10 +532,6 @@ function Invite({ hotel, pendingEmails, onDone }: { hotel: PlatformHotel; pendin
       setBusy(false);
     }
   };
-
-  const message = result?.link
-    ? `Olá! Este é o seu acesso ao painel do ${hotel.name} no ${PLATFORM_NAME}:\n\n${result.link}\n\nO link vale por pouco tempo e só funciona uma vez. Ao abrir, você vai cadastrar a verificação em 2 etapas (app autenticador, como Google Authenticator) e criar sua senha. Depois, o painel fica em ${adminUrl(hotel.id)}`
-    : '';
 
   return (
     <div className="pf-invite">
@@ -544,34 +576,40 @@ function Invite({ hotel, pendingEmails, onDone }: { hotel: PlatformHotel; pendin
       )}
       {error && <p className="pf-error">{error}</p>}
 
-      {result && (
-        <div className="pf-result">
-          {result.link ? (
-            <>
-              <p>
-                <Check size={16} /> {result.status === 'invited' ? 'Convite criado' : 'Novo link gerado'} para{' '}
-                <strong>{result.email}</strong>. Envie o link abaixo — ele não é mandado por e-mail automaticamente.
-              </p>
-              <code className="pf-code">{result.link}</code>
-              <div className="pf-links">
-                <CopyButton text={message} label="Copiar mensagem" />
-                <a
-                  className="a-btn a-btn-outline"
-                  href={`https://wa.me/?text=${encodeURIComponent(message)}`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  <MessageCircle size={16} /> Enviar por WhatsApp
-                </a>
-              </div>
-            </>
-          ) : (
-            <p>
-              <Check size={16} /> <strong>{result.email}</strong> já tinha conta e agora também administra este hotel. Ela entra em{' '}
-              <code>{adminUrl(hotel.id)}</code> com a senha e o autenticador de sempre.
-            </p>
-          )}
-        </div>
+      {result && <LinkResult hotel={hotel} result={result} />}
+    </div>
+  );
+}
+
+/** The access link to send (invite, expired invite or new password), with ready-to-send messages. */
+function LinkResult({ hotel, result }: { hotel: PlatformHotel; result: InviteResult }) {
+  const reset = result.status === 'reset';
+  const message = !result.link
+    ? ''
+    : reset
+      ? `Olá! Este é o link para criar uma nova senha no painel do ${hotel.name}:\n\n${result.link}\n\nEle vale por pouco tempo e só funciona uma vez. Ao abrir, confirme o código do app autenticador e crie a nova senha. O painel fica em ${adminUrl(hotel.id)}`
+      : `Olá! Este é o seu acesso ao painel do ${hotel.name} no ${PLATFORM_NAME}:\n\n${result.link}\n\nO link vale por pouco tempo e só funciona uma vez. Ao abrir, você vai cadastrar a verificação em 2 etapas (app autenticador, como Google Authenticator) e criar sua senha. Depois, o painel fica em ${adminUrl(hotel.id)}`;
+  return (
+    <div className="pf-result">
+      {result.link ? (
+        <>
+          <p>
+            <Check size={16} /> {reset ? 'Link de nova senha' : result.status === 'invited' ? 'Convite criado' : 'Novo link gerado'} para{' '}
+            <strong>{result.email}</strong>. Envie o link abaixo — ele não é mandado por e-mail automaticamente.
+          </p>
+          <code className="pf-code">{result.link}</code>
+          <div className="pf-links">
+            <CopyButton text={message} label="Copiar mensagem" />
+            <a className="a-btn a-btn-outline" href={`https://wa.me/?text=${encodeURIComponent(message)}`} target="_blank" rel="noreferrer">
+              <MessageCircle size={16} /> Enviar por WhatsApp
+            </a>
+          </div>
+        </>
+      ) : (
+        <p>
+          <Check size={16} /> <strong>{result.email}</strong> já tinha conta e agora também administra este hotel. Ela entra em{' '}
+          <code>{adminUrl(hotel.id)}</code> com a senha e o autenticador de sempre.
+        </p>
       )}
     </div>
   );

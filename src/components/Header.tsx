@@ -31,7 +31,7 @@ export function Header({ title, solid }: { title?: string; solid: boolean }) {
       {!isHome && title && <span className="g-header-title">{title}</span>}
 
       <div className="g-header-right">
-        {isHome && (
+        {isHome && id.city && (
           <span className="weather" title={`${id.city} agora`}>
             <WeatherGlyph condition={weather.condition} />
             {weather.temperature}°C <i>•</i> <span className="weather-cond">{weather.condition}</span>

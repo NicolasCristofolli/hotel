@@ -140,8 +140,8 @@ class SupabaseStore implements AnalyticsStore {
     return out;
   }
   async clear() {
-    // Individual clicks and the hourly summary the reports are computed from.
-    for (const table of ['analytics_events', 'analytics_hourly']) {
+    // Individual clicks and the summaries the reports are computed from.
+    for (const table of ['analytics_events', 'analytics_daily', 'analytics_hourly']) {
       const { error } = await this.db.from(table).delete().eq('hotel_id', HOTEL_ID);
       if (error) throw new Error(error.message);
     }

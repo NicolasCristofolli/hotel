@@ -1670,3 +1670,134 @@
   font-size: 12px;
   color: var(--a-muted);
 }
+
+/* ── modal (version history) ───────────────────────────────── */
+.a-modal-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.a-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgb(15 20 18 / 0.45);
+  backdrop-filter: blur(4px);
+}
+.a-modal {
+  position: relative;
+  width: 100%;
+  max-width: 560px;
+  max-height: min(720px, calc(100dvh - 32px));
+  overflow: auto;
+  padding: 20px;
+  border-radius: 18px;
+  background: var(--a-surface);
+  border: 1px solid var(--a-line);
+  box-shadow: 0 24px 60px rgb(0 0 0 / 0.25);
+}
+.a-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.a-modal-head h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 4px;
+  font-size: 18px;
+}
+.a-modal-head p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--a-muted);
+}
+.a-versions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.a-versions li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 2px;
+  border-top: 1px solid var(--a-line);
+}
+.a-versions strong {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+.a-versions small {
+  display: block;
+  margin-top: 2px;
+  font-size: 12.5px;
+  color: var(--a-muted);
+  overflow-wrap: anywhere;
+}
+.a-tag {
+  padding: 1px 8px;
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--a-accent, #b8955a) 18%, transparent);
+}
+
+/* ── "Primeiros passos" checklist ──────────────────────────── */
+.a-setup {
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--a-line);
+  background: var(--a-surface);
+}
+.a-setup header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.a-setup header small {
+  display: block;
+  margin-top: 2px;
+  font-size: 12.5px;
+  color: var(--a-muted);
+}
+.a-setup ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.a-setup li button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 11px;
+  border-radius: 99px;
+  border: 1px solid var(--a-line);
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  color: inherit;
+  cursor: pointer;
+}
+.a-setup li button:hover:not(:disabled) {
+  border-color: currentColor;
+}
+.a-setup li.done button {
+  cursor: default;
+  color: #2f7a4f;
+  opacity: 0.75;
+}

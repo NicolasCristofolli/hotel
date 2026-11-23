@@ -1,7 +1,6 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { Delete, Lock } from 'lucide-react';
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { AdminLogin } from '../admin/auth/AdminLogin';
+import { createContext, lazy, Suspense, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   authMessage,
   IDLE_LIMIT_MS,
@@ -16,6 +15,9 @@ import { supabase } from '../lib/supabase';
 import { isPlatformPanel } from '../lib/tenant';
 
 export type { AdminRole } from '../lib/adminAuth';
+
+// The login (password, 2FA, QR code) is only downloaded when someone actually opens the admin.
+const AdminLogin = lazy(() => import('../admin/auth/AdminLogin').then((m) => ({ default: m.AdminLogin })));
 
 /** Local demo mode only (no Supabase configured). Checked in the browser — not real security. */
 const DEMO_PIN = '1234';
@@ -46,6 +48,11 @@ export function AdminAccessProvider({ children }: { children: ReactNode }) {
   const [promptOpen, setPromptOpen] = useState(false);
   const [linkError, setLinkError] = useState('');
   const unlocked = role !== null;
+  // Kept mounted once opened, so its closing animation still plays.
+  const [loginUsed, setLoginUsed] = useState(false);
+  useEffect(() => {
+    if (promptOpen) setLoginUsed(true);
+  }, [promptOpen]);
 
   useEffect(() => {
     const onHash = () => setIsAdminRoute(isAdminHash());
@@ -179,7 +186,11 @@ export function AdminAccessProvider({ children }: { children: ReactNode }) {
     <AdminAccessContext.Provider value={{ unlocked, role, email, canEdit, lock, isAdminRoute, exitAdmin }}>
       {children}
       {supabase ? (
-        <AdminLogin open={promptOpen} initialError={linkError} onSuccess={onSuccess} onCancel={onCancel} />
+        (promptOpen || loginUsed) && (
+          <Suspense fallback={null}>
+            <AdminLogin open={promptOpen} initialError={linkError} onSuccess={onSuccess} onCancel={onCancel} />
+          </Suspense>
+        )
       ) : (
         <PinModal open={promptOpen} onSuccess={() => onSuccess('demo')} onCancel={onCancel} />
       )}

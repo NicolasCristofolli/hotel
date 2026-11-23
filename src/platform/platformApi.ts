@@ -30,7 +30,33 @@ export type HotelAdmin = {
   has_2fa: boolean;
 };
 
-export type InviteResult = { status: 'invited' | 'pending' | 'linked'; link: string | null; email: string };
+export type InviteResult = { status: 'invited' | 'pending' | 'linked' | 'reset'; link: string | null; email: string };
+
+// The Edge Function's address. 'rapid-responder' is the name the dashboard gave it on the first deploy;
+// kept as a fallback until the function is redeployed as 'invite-admin'.
+const INVITE_FUNCTIONS = ['invite-admin', 'rapid-responder'];
+
+async function callInvite(body: Record<string, unknown>): Promise<InviteResult> {
+  let lastError: Error | null = null;
+  for (const name of INVITE_FUNCTIONS) {
+    const { data, error } = await db().functions.invoke(name, { body: { ...body, redirect_to: window.location.origin } });
+    if (!error) return data as InviteResult;
+    // The function answers errors as JSON { error } — show that instead of "non-2xx status code".
+    const ctx = (error as { context?: Response }).context;
+    if (ctx?.status === 404) {
+      lastError = new Error('Função "invite-admin" não encontrada. Publique-a no Supabase (veja o README).');
+      continue;
+    }
+    const msg = await ctx
+      ?.json()
+      .then((j: { error?: string }) => j.error)
+      .catch(() => undefined);
+    if (!msg && /Failed to send a request|FunctionsFetchError/i.test(error.message))
+      throw new Error('Não foi possível falar com a função de convites. Verifique a internet e se ela está publicada.');
+    throw new Error(msg ?? error.message);
+  }
+  throw lastError ?? new Error('Função de convites indisponível.');
+}
 
 export const ROLE_OPTIONS: { value: HotelAdminRole; label: string; hint: string }[] = [
   { value: 'owner', label: 'Proprietário', hint: 'Edita tudo' },
@@ -60,23 +86,9 @@ export const platformApi = {
   removeAdmin: (hotelId: string, userId: string) => rpc<void>('platform_remove_admin', { p_hotel: hotelId, p_user: userId }),
   reset2fa: (userId: string) => rpc<void>('platform_reset_2fa', { p_user: userId }),
 
-  async invite(hotelId: string, email: string, role: HotelAdminRole): Promise<InviteResult> {
-    const { data, error } = await db().functions.invoke('invite-admin', {
-      body: { hotel_id: hotelId, email, role, redirect_to: window.location.origin },
-    });
-    if (error) {
-      // The function answers errors as JSON { error } — show that instead of "non-2xx status code".
-      const ctx = (error as { context?: Response }).context;
-      const msg = await ctx
-        ?.json()
-        .then((j: { error?: string }) => j.error)
-        .catch(() => undefined);
-      if (!msg && /Failed to send a request|FunctionsFetchError/i.test(error.message))
-        throw new Error('Função "invite-admin" não encontrada. Publique-a no Supabase (veja o README).');
-      throw new Error(msg ?? error.message);
-    }
-    return data as InviteResult;
-  },
+  invite: (hotelId: string, email: string, role: HotelAdminRole) => callInvite({ hotel_id: hotelId, email, role }),
+  /** One-time link to set a new password (for someone who already has an account). */
+  passwordLink: (hotelId: string, email: string) => callInvite({ hotel_id: hotelId, email, password_reset: true }),
 };
 
 /** "Piscina & Spa Vale" → "piscina-spa-vale" (same rule as hotel ids in the database). */

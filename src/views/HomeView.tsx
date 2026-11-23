@@ -96,9 +96,7 @@ export function HomeView() {
           <BrandMark identity={id} size="lg" />
           <p className="footer-tagline">{id.tagline}</p>
           <span className="gold-rule wide" />
-          <p className="footer-small">
-            {id.name} • {id.city}, {id.region}
-          </p>
+          <p className="footer-small">{[id.name, [id.city, id.region].filter(Boolean).join(', ')].filter(Boolean).join(' • ')}</p>
           <p className="footer-small faint">© {new Date().getFullYear()} • Guia do Hóspede</p>
         </div>
       </footer>

@@ -3,7 +3,10 @@ import {
   BarChart3,
   CalendarDays,
   Clock,
+  CheckCircle2,
+  Circle,
   Eye,
+  History,
   LayoutGrid,
   LogOut,
   Map,
@@ -12,9 +15,14 @@ import {
   RotateCcw,
   Smartphone,
   Sparkles,
+  X,
 } from 'lucide-react';
 import { useState } from 'react';
+import { setupSteps } from '../config/starterConfig';
 import { GuestApp } from '../GuestApp';
+import { MIGRATION_FILE, useSchemaOutdated } from '../lib/schema';
+import { supabase } from '../lib/supabase';
+import { hotelKey } from '../lib/tenant';
 import { useAdminAccess } from '../state/AdminAccess';
 import { useHotel } from '../state/HotelContext';
 import { ToastProvider, useToast } from '../state/ToastContext';
@@ -26,6 +34,7 @@ import { MapEditorTab } from './tabs/MapEditorTab';
 import { NoticesTab } from './tabs/NoticesTab';
 import { ReportsTab } from './tabs/ReportsTab';
 import { ServicesTab } from './tabs/ServicesTab';
+import { VersionHistory } from './VersionHistory';
 
 const TABS = [
   { id: 'identity', label: 'Identidade & Configurações', short: 'Identidade', icon: Palette, C: IdentityTab },
@@ -54,14 +63,21 @@ function AdminInner() {
   const tabs = canEdit ? TABS : TABS.filter((t) => t.id === 'reports');
   const [tab, setTab] = useState<(typeof TABS)[number]['id']>(canEdit ? 'identity' : 'reports');
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const current = tabs.find((t) => t.id === tab) ?? tabs[0];
+  const outdated = useSchemaOutdated();
 
-  const onReset = () => {
-    if (confirm('Restaurar todos os dados para o padrão de fábrica? As alterações serão perdidas.')) {
+  // Online: every editing session is kept in the history, which replaces "reset to factory" (that would
+  // overwrite a real hotel with the demo hotel). The demo mode keeps the reset.
+  const onHistory = () => {
+    if (supabase) return setHistoryOpen(true);
+    if (confirm('Restaurar os dados de demonstração? As alterações deste navegador serão perdidas.')) {
       reset();
-      toast('Dados restaurados', 'Configuração padrão aplicada');
+      toast('Dados restaurados', 'Configuração de demonstração aplicada');
     }
   };
+  const HistoryIcon = supabase ? History : RotateCcw;
+  const historyLabel = supabase ? 'Histórico de versões' : 'Restaurar demonstração';
 
   return (
     <div className="admin">
@@ -93,8 +109,8 @@ function AdminInner() {
         </nav>
         <div className="a-side-foot">
           {canEdit && (
-            <button className="a-btn a-btn-ghost" onClick={onReset}>
-              <RotateCcw size={16} /> Restaurar Padrão
+            <button className="a-btn a-btn-ghost" onClick={onHistory}>
+              <HistoryIcon size={16} /> {historyLabel}
             </button>
           )}
           {email && (
@@ -118,8 +134,8 @@ function AdminInner() {
           <div className="a-topbar-actions">
             <SyncBadge />
             {canEdit && (
-              <button className="a-btn a-btn-outline a-mobile-only" onClick={onReset} aria-label="Restaurar Padrão">
-                <RotateCcw size={16} /> Restaurar
+              <button className="a-btn a-btn-outline a-mobile-only" onClick={onHistory} aria-label={historyLabel}>
+                <HistoryIcon size={16} /> {supabase ? 'Histórico' : 'Restaurar'}
               </button>
             )}
             <button className="a-btn a-btn-outline a-mobile-only" onClick={lock} aria-label="Sair do painel">
@@ -133,6 +149,22 @@ function AdminInner() {
             </button>
           </div>
         </header>
+
+        {outdated && (
+          <div className="a-alert" role="alert">
+            <span>
+              {role === 'platform' ? (
+                <>
+                  <strong>Banco desatualizado:</strong> rode <code>{MIGRATION_FILE}</code> no SQL Editor do Supabase.
+                </>
+              ) : (
+                'O sistema está em atualização. Se algo não salvar, avise o suporte da plataforma.'
+              )}
+            </span>
+          </div>
+        )}
+
+        {canEdit && <SetupChecklist onGo={(t) => setTab(t as typeof tab)} />}
 
         {sync.status === 'error' && (
           <div className="a-alert" role="alert">
@@ -168,6 +200,8 @@ function AdminInner() {
           <GuestApp mode="memory" />
         </div>
       </aside>
+
+      <VersionHistory open={historyOpen} onClose={() => setHistoryOpen(false)} />
     </div>
   );
 }
@@ -187,6 +221,7 @@ function SyncBadge() {
     loading: { cls: 'busy', text: 'Carregando…' },
     saving: { cls: 'busy', text: 'Salvando…' },
     synced: { cls: '', text: 'Salvo • publicado ao vivo' },
+    merged: { cls: '', text: 'Salvo • junto com as alterações de outro admin' },
     error: { cls: 'err', text: 'Não salvo' },
   } as const;
   const m = map[sync.status];
@@ -194,5 +229,51 @@ function SyncBadge() {
     <span className={`a-sync ${m.cls}`} title={sync.status === 'error' ? sync.message : undefined}>
       <i /> {m.text}
     </span>
+  );
+}
+
+/** "Primeiros passos" for a new hotel: what's still missing before the portal goes to guests. Dismissable. */
+function SetupChecklist({ onGo }: { onGo: (tab: string) => void }) {
+  const { config } = useHotel();
+  const key = hotelKey('guia-hospede:setup-dismissed');
+  const [hidden, setHidden] = useState(() => {
+    try {
+      return localStorage.getItem(key) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const steps = setupSteps(config);
+  const left = steps.filter((s) => !s.done).length;
+  if (hidden || left === 0) return null;
+  const dismiss = () => {
+    try {
+      localStorage.setItem(key, '1');
+    } catch {
+      /* ignore */
+    }
+    setHidden(true);
+  };
+  return (
+    <section className="a-setup" aria-label="Primeiros passos">
+      <header>
+        <div>
+          <strong>Primeiros passos</strong>
+          <small>{left === 1 ? 'Falta 1 item' : `Faltam ${left} itens`} antes de divulgar o portal aos hóspedes.</small>
+        </div>
+        <button className="a-btn a-btn-ghost" onClick={dismiss} aria-label="Ocultar primeiros passos">
+          <X size={16} />
+        </button>
+      </header>
+      <ul>
+        {steps.map((s) => (
+          <li key={s.id} className={s.done ? 'done' : ''}>
+            <button onClick={() => onGo(s.tab)} disabled={s.done}>
+              {s.done ? <CheckCircle2 size={16} /> : <Circle size={16} />} {s.label}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

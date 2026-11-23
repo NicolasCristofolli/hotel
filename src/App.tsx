@@ -1,16 +1,19 @@
 import { motion } from 'framer-motion';
 import { QrCode, Smartphone } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
-import { AdminPanel } from './admin/AdminPanel';
+import { lazy, Suspense } from 'react';
 import { BrandMark } from './components/BrandMark';
 import { IMAGES } from './config/defaultHotelConfig';
 import { GuestApp } from './GuestApp';
 import { AdminAccessProvider, useAdminAccess } from './state/AdminAccess';
 import { supabase } from './lib/supabase';
 import { hasHotel, isPlatformPanel } from './lib/tenant';
-import { PlatformPanel } from './platform/PlatformPanel';
 import { HotelLoading, HotelNotFound, HotelOffline, PlatformHome, PlatformMessage } from './platform/PlatformHome';
 import { HotelProvider, useHotel } from './state/HotelContext';
+
+// Admin code (panels, editors, reports) is downloaded only when someone opens it — guests never load it.
+const AdminPanel = lazy(() => import('./admin/AdminPanel').then((m) => ({ default: m.AdminPanel })));
+const PlatformPanel = lazy(() => import('./platform/PlatformPanel').then((m) => ({ default: m.PlatformPanel })));
 
 export default function App() {
   // hotelguia.com.br/ → platform; /painel → super admin; /<hotel> → that hotel's portal (#/admin for its panel).
@@ -32,7 +35,12 @@ export default function App() {
 function PlatformGate() {
   const { role } = useAdminAccess();
   if (!supabase) return <PlatformMessage text="O painel da plataforma precisa do Supabase configurado (.env.local)." />;
-  if (role === 'platform') return <PlatformPanel />;
+  if (role === 'platform')
+    return (
+      <Suspense fallback={<HotelLoading />}>
+        <PlatformPanel />
+      </Suspense>
+    );
   return <HotelLoading />;
 }
 
@@ -55,7 +63,13 @@ function Root() {
   // Entry-only fade: an exit animation ("wait" mode) could leave the screen blank when switching quickly.
   return (
     <motion.div key={showAdmin ? 'admin' : 'guest'} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }}>
-      {showAdmin ? <AdminPanel /> : <GuestStage />}
+      {showAdmin ? (
+        <Suspense fallback={<HotelLoading />}>
+          <AdminPanel />
+        </Suspense>
+      ) : (
+        <GuestStage />
+      )}
     </motion.div>
   );
 }

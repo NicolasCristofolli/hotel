@@ -153,6 +153,36 @@ arquivo de novo. A aba Relatórios passa a receber o relatório pronto do banco 
 todos os cliques; o "Exportar CSV" traz os cliques individuais dos últimos 90 dias. Dias e horários seguem o fuso do hotel
 (`hotels.timezone`, padrão `America/Sao_Paulo`).
 
+### Histórico de versões, edição simultânea e limite contra spam (uma vez)
+
+**SQL Editor:** rode `supabase/migrations/0008_versions_and_limits.sql`.
+
+- **Histórico:** cada sessão de edição vira uma versão (até 100 por hotel). No painel, _Histórico de versões_ lista e
+  restaura. Restaurar também vira uma versão, então dá para desfazer. Substitui o antigo "Restaurar Padrão", que trocaria o
+  conteúdo de um hotel real pelo do hotel de demonstração (no modo local continua existindo como "Restaurar demonstração").
+- **Dois admins ao mesmo tempo:** o painel só grava se ninguém salvou no meio. Se alguém salvou, ele junta as duas
+  alterações (por campo e por item: um mexendo em Eventos e outro no Mapa não perdem nada). Se os dois mudaram o mesmo
+  campo, fica o de quem salvou por último.
+- **Spam nos relatórios:** no máximo 3.000 cliques por hora por IP em cada hotel; o excesso é descartado. Do IP só fica um
+  hash, por até 1 dia.
+- **Versão do banco:** o site confere se o banco tem todas as migrações e mostra "Banco desatualizado" no painel quando falta
+  alguma. Ao criar uma migração nova, atualize `app_schema_version()` no SQL e `EXPECTED_SCHEMA` em `src/lib/schema.ts`.
+
+### E-mail próprio com Resend (uma vez)
+
+Sem isso, o "Esqueci minha senha" só entrega para quem é da equipe do projeto Supabase.
+
+1. **Resend:** _Domains_ → `hotelguia.com.br` precisa aparecer como **Verified** (registros DNS na Hostinger). Depois,
+   _API Keys_ → _Create API key_ (permissão **Sending access**, domínio `hotelguia.com.br`) → copie (`re_…`).
+2. **Supabase → Authentication → Emails → SMTP Settings** → _Enable custom SMTP_:
+   - Sender email: `nao-responda@hotelguia.com.br` · Sender name: `Hotel Guia`
+   - Host: `smtp.resend.com` · Port: `465` · Username: `resend` · Password: a API key `re_…`
+3. **Authentication → Rate Limits:** suba _emails sent per hour_ (o padrão com SMTP próprio é 30).
+4. _(Opcional)_ **Authentication → Emails → Templates:** traduza o assunto e o texto de _Reset Password_ e _Invite user_.
+   Mantenha o `{{ .ConfirmationURL }}` no link.
+
+A chave `re_…` fica só no Supabase — nunca no site nem no `.env`.
+
 ### Super admin da plataforma (`hotelguia.com.br/painel`)
 
 Cria hotéis, convida os administradores de cada um, troca papéis, remove acessos e redefine a 2FA de quem perdeu o celular.
@@ -171,9 +201,13 @@ Instalação (uma vez):
 5. _(Opcional)_ _Authentication → Providers → Email → Email OTP Expiration_: aumente para `86400` (24 h) para os links de
    convite durarem um dia em vez de 1 hora.
 
-Como funciona o convite: o painel gera um **link de acesso** e você envia por WhatsApp (o e-mail padrão do Supabase só entrega
-para a equipe do projeto). Quem abre o link cadastra o app autenticador (2FA), cria a senha e cai no painel do hotel. Se o link
+Como funciona o convite: o painel gera um **link de acesso** e você envia por WhatsApp. Quem abre o link cadastra o app autenticador (2FA), cria a senha e cai no painel do hotel. Se o link
 expirar, gere outro no mesmo lugar. Quem já tem conta (ex.: admin de outro hotel) só é vinculado — entra com a senha de sempre.
+Quem esqueceu a senha: botão **Nova senha** ao lado do admin gera um link de uso único (pede a 2FA e depois a senha nova).
+
+Hotel novo começa com um **modelo neutro** (nome do hotel, recepção, café da manhã, Wi-Fi), nunca com o conteúdo do hotel
+de demonstração. O painel do hotel mostra **Primeiros passos** com o que falta preencher (WhatsApp, Wi-Fi, cidade, foto de
+capa, horários).
 
 ### Fluxo de login da equipe
 
@@ -216,10 +250,13 @@ Papéis: **owner** e **admin** editam tudo; **staff** vê só os Relatórios.
 - [x] Upload das demais fotos (banner, serviços, mapa) com compressão automática
 - [x] Edição dos pedidos rápidos (WhatsApp) pelo painel
 - [x] 2FA obrigatória, recuperação de senha, CAPTCHA e logout por inatividade
-- [ ] Gestão de usuários pelo próprio painel (convites, papéis, redefinir 2FA)
+- [x] Gestão de usuários (convites, papéis, redefinir 2FA, link de nova senha) — no `/painel`
 - [x] Multi-hotel: um site para todos os hotéis (`hotelguia.com.br/<id>`)
 - [x] Editor de Experiências com upload de foto
 - [x] Portal dos hóspedes lido do CDN (o banco só é usado quando o admin salva)
 - [x] Super admin da plataforma (criar hotéis, convidar admins, redefinir 2FA)
 - [x] Relatórios agregados no banco (resumos por dia/hora + limpeza dos cliques com mais de 90 dias)
+- [x] Histórico de versões, junção de edições simultâneas, modelo neutro para hotel novo, limite contra spam
+- [x] Código do painel separado do portal (hóspedes não baixam o painel)
+- [ ] Tirar a biblioteca do Supabase do carregamento do hóspede (portal ~35% menor)
 - [ ] Vitrine de hotéis parceiros na página inicial

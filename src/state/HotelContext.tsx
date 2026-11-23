@@ -1,5 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { defaultHotelConfig } from '../config/defaultHotelConfig';
+import { starterConfig } from '../config/starterConfig';
+import { mergeConfig } from '../lib/mergeConfig';
 import { fetchPublicConfig, publishConfig } from '../lib/publicConfig';
 import { HOTEL_ID, isRemote, supabase } from '../lib/supabase';
 import { hotelKey } from '../lib/tenant';
@@ -17,6 +19,7 @@ export type SyncState =
   | { status: 'loading' }
   | { status: 'synced' }
   | { status: 'saving' }
+  | { status: 'merged' } //  saved, combined with another admin's simultaneous changes
   | { status: 'error'; message: string };
 
 /**
@@ -29,7 +32,9 @@ type Ctx = {
   config: HotelConfig;
   setConfig: (updater: (prev: HotelConfig) => HotelConfig) => void;
   patch: <K extends keyof HotelConfig>(key: K, value: HotelConfig[K]) => void;
+  /** Demo mode only: back to the sample hotel. */
   reset: () => void;
+  restore: (config: unknown) => void;
   sync: SyncState;
   /** Retry a failed save. */
   retry: () => void;
@@ -58,31 +63,11 @@ function readCache(): HotelConfig | null {
 }
 const loadCache = () => readCache() ?? defaultHotelConfig;
 
-/** A hotel that exists but was never saved (config null): the template, under the hotel's own name. */
-function starterConfig(name: string): HotelConfig {
-  const words = name
-    .replace(/^(hotel|pousada|resort)\s+/i, '')
-    .split(/\s+/)
-    .filter(Boolean);
-  return {
-    ...defaultHotelConfig,
-    identity: {
-      ...defaultHotelConfig.identity,
-      name,
-      shortName: words.join(' ') || name,
-      monogram:
-        words
-          .map((w) => w[0])
-          .join('')
-          .slice(0, 2)
-          .toUpperCase() || name.slice(0, 2).toUpperCase(),
-    },
-  };
-}
-
-type HotelRow = { name: string; config: unknown };
+// config_rev (0008) goes up on every content change; a save only goes through if nobody saved in between.
+// select('*') keeps working on a database that doesn't have that column yet (saves then skip the check).
+type HotelRow = { name: string; config: unknown; config_rev?: number };
 const fetchRow = async (db: NonNullable<typeof supabase>) => {
-  const { data, error } = await db.from('hotels').select('name, config').eq('id', HOTEL_ID).maybeSingle();
+  const { data, error } = await db.from('hotels').select('*').eq('id', HOTEL_ID).maybeSingle();
   if (error) throw new Error(error.message);
   return data as HotelRow | null;
 };
@@ -97,6 +82,8 @@ export function HotelProvider({ children }: { children: ReactNode }) {
   const saveTimer = useRef<ReturnType<typeof setTimeout>>();
   const latest = useRef(config);
   latest.current = config;
+  /** Last version this browser saw in the database — the common ancestor when merging a concurrent save. */
+  const base = useRef<{ rev: number | null; config: HotelConfig } | null>(null);
 
   // Persist cache (only real content of this hotel — never a placeholder)
   useEffect(() => {
@@ -116,9 +103,11 @@ export function HotelProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
-  const applyRemote = useCallback((raw: unknown, name?: string) => {
-    // A null config means "never saved" — show the template under the hotel's name (first admin save creates it).
+  const applyRemote = useCallback((raw: unknown, name?: string, rev?: number) => {
+    // A null config means "never saved" — show the neutral starter under the hotel's name (first admin save creates it).
     const remote = normalize(raw as Partial<HotelConfig> | null) ?? (name ? starterConfig(name) : null);
+    // While this browser is editing, the remote version is only recorded as the base: the next save merges it.
+    if (remote && rev !== undefined) base.current = { rev, config: remote };
     if (remote && Date.now() - lastLocalEdit.current > 3000) setState(remote);
     setPresence('ready');
   }, []);
@@ -177,7 +166,7 @@ export function HotelProvider({ children }: { children: ReactNode }) {
       (row) => {
         if (!alive) return;
         if (!row) return setPresence('missing');
-        applyRemote(row.config, row.name);
+        applyRemote(row.config, row.name, row.config_rev ?? -1);
         setSync({ status: 'synced' });
       },
       (e: Error) => {
@@ -191,7 +180,8 @@ export function HotelProvider({ children }: { children: ReactNode }) {
       .channel(`hotel:${HOTEL_ID}`)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'hotels', filter: `id=eq.${HOTEL_ID}` }, (payload) => {
         // Ignore echoes while this browser is editing, so typing isn't overwritten by an older save.
-        applyRemote((payload.new as { config?: unknown }).config);
+        const row = payload.new as HotelRow;
+        applyRemote(row.config, row.name, row.config_rev ?? -1);
       })
       .subscribe();
 
@@ -203,20 +193,39 @@ export function HotelProvider({ children }: { children: ReactNode }) {
 
   const save = useCallback(async () => {
     if (!supabase) return;
+    const db = supabase;
     setSync({ status: 'saving' });
-    const { data, error } = await supabase.from('hotels').update({ config: latest.current }).eq('id', HOTEL_ID).select('id');
-    if (error) setSync({ status: 'error', message: `Erro ao salvar: ${error.message}` });
-    // RLS turns an unauthorized update into "0 rows" rather than an error.
-    else if (!data?.length) setSync({ status: 'error', message: 'Sem permissão para salvar. Entre com uma conta de administrador.' });
-    else {
-      // Republish the guests' CDN snapshot. If this fails the database is still correct; "Tentar de novo" republishes.
-      try {
-        await publishConfig(latest.current);
-        setSync({ status: 'synced' });
-      } catch (e) {
-        setSync({ status: 'error', message: `Salvo, mas não publicado para os hóspedes: ${(e as Error).message}` });
+    let merged = false;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const rev = base.current?.rev ?? -1;
+      const mine = latest.current;
+      let q = db.from('hotels').update({ config: mine }).eq('id', HOTEL_ID);
+      if (rev >= 0) q = q.eq('config_rev', rev);
+      const { data, error } = await q.select('*');
+      if (error) return setSync({ status: 'error', message: `Erro ao salvar: ${error.message}` });
+      const saved = (data as HotelRow[] | null)?.[0];
+      if (saved) {
+        base.current = { rev: saved.config_rev ?? -1, config: mine };
+        // Republish the guests' CDN snapshot. If this fails the database is still correct; "Tentar de novo" republishes.
+        try {
+          await publishConfig(mine);
+          setSync(merged ? { status: 'merged' } : { status: 'synced' });
+        } catch (e) {
+          setSync({ status: 'error', message: `Salvo, mas não publicado para os hóspedes: ${(e as Error).message}` });
+        }
+        return;
       }
+      // 0 rows: either another admin saved in between (revision moved on) or no permission (RLS hides the row).
+      const row = rev >= 0 ? await fetchRow(db).catch(() => null) : null;
+      const theirs = row && normalize(row.config as Partial<HotelConfig>);
+      if (!row || row.config_rev === rev || !theirs || !base.current) break;
+      const combined = mergeConfig(base.current.config, latest.current, theirs);
+      base.current = { rev: row.config_rev ?? -1, config: theirs };
+      latest.current = combined;
+      setState(combined);
+      merged = true;
     }
+    setSync({ status: 'error', message: 'Sem permissão para salvar. Entre com uma conta de administrador.' });
   }, []);
 
   const scheduleSave = useCallback(() => {
@@ -272,10 +281,19 @@ export function HotelProvider({ children }: { children: ReactNode }) {
     [setConfig],
   );
   const reset = useCallback(() => setConfig(() => defaultHotelConfig), [setConfig]);
+  /** Puts back a saved version (from the history) — saved as a new version, so it can be undone too. */
+  const restore = useCallback(
+    (raw: unknown) => {
+      const c = normalize(raw as Partial<HotelConfig>);
+      if (!c) throw new Error('Versão incompatível com esta versão do painel.');
+      setConfig(() => c);
+    },
+    [setConfig],
+  );
 
   const value = useMemo(
-    () => ({ config, setConfig, patch, reset, sync, retry: save, presence }),
-    [config, setConfig, patch, reset, sync, save, presence],
+    () => ({ config, setConfig, patch, reset, restore, sync, retry: save, presence }),
+    [config, setConfig, patch, reset, restore, sync, save, presence],
   );
   return <HotelContext.Provider value={value}>{children}</HotelContext.Provider>;
 }
