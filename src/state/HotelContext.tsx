@@ -1,10 +1,15 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { defaultHotelConfig } from '../config/defaultHotelConfig';
+import { fetchPublicConfig, publishConfig } from '../lib/publicConfig';
 import { HOTEL_ID, isRemote, supabase } from '../lib/supabase';
 import type { HotelConfig } from '../types';
 
 const STORAGE_KEY = 'guia-hospede:config:v1';
 const SAVE_DELAY = 800;
+/** How often an open guest portal re-checks the CDN snapshot. */
+const REVALIDATE_MS = 5 * 60_000;
+
+const isAdminHash = () => /^#\/?admin/.test(window.location.hash);
 
 export type SyncState =
   | { status: 'local' } //  no Supabase configured — this browser only
@@ -62,11 +67,67 @@ export function HotelProvider({ children }: { children: ReactNode }) {
     }
   }, [config]);
 
-  // Remote: initial load + realtime updates from the admin
+  // Which audience is reading: the admin panel needs the live database; guests read the CDN snapshot.
+  const [isAdmin, setIsAdmin] = useState(isAdminHash);
   useEffect(() => {
-    if (!supabase) return;
+    const onHash = () => setIsAdmin(isAdminHash());
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+
+  const applyRemote = useCallback((raw: unknown) => {
+    const remote = normalize(raw as Partial<HotelConfig> | null);
+    // A null config means "never saved" — keep the defaults (first admin save creates it).
+    if (remote && Date.now() - lastLocalEdit.current > 3000) setState(remote);
+  }, []);
+
+  // Guests: published snapshot on the Storage CDN — no database query, no realtime connection.
+  // Revalidated when the guest comes back to the tab and every few minutes while it's visible.
+  useEffect(() => {
+    if (!supabase || isAdmin) return;
     const db = supabase;
     let alive = true;
+    let lastCheck = 0;
+
+    const refresh = async () => {
+      lastCheck = Date.now();
+      try {
+        let raw = await fetchPublicConfig();
+        if (raw === null) {
+          // Not published yet (no admin save since the CDN snapshot shipped) → read the database once.
+          const { data, error } = await db.from('hotels').select('config').eq('id', HOTEL_ID).maybeSingle();
+          if (error) throw new Error(error.message);
+          if (!data) throw new Error(`Hotel "${HOTEL_ID}" não encontrado no banco. Rode o SQL de instalação.`);
+          raw = data.config;
+        }
+        if (!alive) return;
+        applyRemote(raw);
+        setSync({ status: 'synced' });
+      } catch (e) {
+        // The local cache keeps the portal usable offline / if the CDN hiccups.
+        if (alive) setSync({ status: 'error', message: `Não foi possível atualizar: ${(e as Error).message}` });
+      }
+    };
+
+    refresh();
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && Date.now() - lastCheck > REVALIDATE_MS / 5) refresh();
+    };
+    const timer = setInterval(() => document.visibilityState === 'visible' && refresh(), REVALIDATE_MS);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [isAdmin, applyRemote]);
+
+  // Admin: database (source of truth) + realtime, so two admins editing at once see each other's changes.
+  useEffect(() => {
+    if (!supabase || !isAdmin) return;
+    const db = supabase;
+    let alive = true;
+    setSync({ status: 'loading' });
 
     db.from('hotels')
       .select('config')
@@ -76,9 +137,7 @@ export function HotelProvider({ children }: { children: ReactNode }) {
         if (!alive) return;
         if (error) return setSync({ status: 'error', message: `Não foi possível carregar do banco: ${error.message}` });
         if (!data) return setSync({ status: 'error', message: `Hotel "${HOTEL_ID}" não encontrado no banco. Rode o SQL de instalação.` });
-        const remote = normalize(data.config as Partial<HotelConfig> | null);
-        // A null config means "never saved" — keep the defaults (first admin save creates it).
-        if (remote && Date.now() - lastLocalEdit.current > 3000) setState(remote);
+        applyRemote(data.config);
         setSync({ status: 'synced' });
       });
 
@@ -86,9 +145,7 @@ export function HotelProvider({ children }: { children: ReactNode }) {
       .channel(`hotel:${HOTEL_ID}`)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'hotels', filter: `id=eq.${HOTEL_ID}` }, (payload) => {
         // Ignore echoes while this browser is editing, so typing isn't overwritten by an older save.
-        if (Date.now() - lastLocalEdit.current < 3000) return;
-        const remote = normalize((payload.new as { config?: Partial<HotelConfig> }).config);
-        if (remote) setState(remote);
+        applyRemote((payload.new as { config?: unknown }).config);
       })
       .subscribe();
 
@@ -96,7 +153,7 @@ export function HotelProvider({ children }: { children: ReactNode }) {
       alive = false;
       db.removeChannel(channel);
     };
-  }, []);
+  }, [isAdmin, applyRemote]);
 
   const save = useCallback(async () => {
     if (!supabase) return;
@@ -105,7 +162,15 @@ export function HotelProvider({ children }: { children: ReactNode }) {
     if (error) setSync({ status: 'error', message: `Erro ao salvar: ${error.message}` });
     // RLS turns an unauthorized update into "0 rows" rather than an error.
     else if (!data?.length) setSync({ status: 'error', message: 'Sem permissão para salvar. Entre com uma conta de administrador.' });
-    else setSync({ status: 'synced' });
+    else {
+      // Republish the guests' CDN snapshot. If this fails the database is still correct; "Tentar de novo" republishes.
+      try {
+        await publishConfig(latest.current);
+        setSync({ status: 'synced' });
+      } catch (e) {
+        setSync({ status: 'error', message: `Salvo, mas não publicado para os hóspedes: ${(e as Error).message}` });
+      }
+    }
   }, []);
 
   const scheduleSave = useCallback(() => {

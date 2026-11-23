@@ -109,6 +109,9 @@ telefone ou quarto). Cliques feitos na pré-visualização do admin não contam.
 ### Segurança do login (uma vez)
 
 6. **SQL Editor:** rode `supabase/migrations/0003_image_limits.sql` (limite de 1 MB por imagem) e `supabase/migrations/0002_require_mfa.sql` — o banco passa a exigir 2FA para editar e ver relatórios.
+   Depois rode `supabase/migrations/0004_public_config_cdn.sql` e **salve qualquer alteração no painel uma vez**: o portal dos
+   hóspedes passa a ler `hotel-assets/<hotel>/config.json` pelo CDN (sem consultar o banco). Cada salvamento do admin
+   republica o arquivo; os hóspedes veem a mudança em até ~1 minuto (ao voltar para a aba ou a cada 5 min com ela aberta).
 7. **Authentication → URL Configuration:** _Site URL_ = endereço do site (ex.: `https://seu-site.vercel.app`) e, em
    _Redirect URLs_, adicione `https://seu-site.vercel.app/**` e `http://localhost:5173/**` (usado pelo "Esqueci minha senha").
 8. **Authentication → Providers → Email:** senha mínima de 10 caracteres, exigindo letras e números.
