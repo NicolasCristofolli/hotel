@@ -32,9 +32,9 @@ export type HotelAdmin = {
 
 export type InviteResult = { status: 'invited' | 'pending' | 'linked' | 'reset'; link: string | null; email: string };
 
-// The Edge Function's address. 'rapid-responder' is the name the dashboard gave it on the first deploy;
-// kept as a fallback until the function is redeployed as 'invite-admin'.
-const INVITE_FUNCTIONS = ['invite-admin', 'rapid-responder'];
+// The Edge Function's address (slug). In the dashboard it's named "invite-admin", but its address stayed
+// 'rapid-responder' (auto-generated on the first deploy; Supabase can't change it). 'invite-admin' covers a redeploy.
+const INVITE_FUNCTIONS = ['rapid-responder', 'invite-admin'];
 
 async function callInvite(body: Record<string, unknown>): Promise<InviteResult> {
   let lastError: Error | null = null;
