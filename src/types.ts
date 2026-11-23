@@ -118,7 +118,13 @@ export type QuickAction = {
   active: boolean;
 };
 
-export type QuickRequest = { id: string; label: string; icon: string };
+/** A one-tap request in "Falar com a Recepção" — opens WhatsApp with a ready message. */
+export type QuickRequest = {
+  id: string;
+  label: string;
+  icon: string;
+  active?: boolean; // undefined → visible (configs saved before this field existed)
+};
 
 export type HotelConfig = {
   version: number;

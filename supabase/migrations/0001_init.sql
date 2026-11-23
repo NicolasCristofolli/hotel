@@ -120,7 +120,7 @@ end $$;
 -- ── Storage (logos e fotos) ────────────────────────────────────────
 -- Arquivos em hotel-assets/<hotel_id>/...  Leitura pública; escrita só do admin daquele hotel.
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-values ('hotel-assets', 'hotel-assets', true, 5242880,
+values ('hotel-assets', 'hotel-assets', true, 1048576,  -- 1 MB (o painel comprime antes de enviar)
         array['image/png','image/jpeg','image/webp','image/svg+xml'])
 on conflict (id) do update
   set public = true, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;

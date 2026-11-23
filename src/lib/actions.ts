@@ -1,5 +1,9 @@
 export const waLink = (number: string, text: string) => `https://wa.me/${number.replace(/\D/g, '')}?text=${encodeURIComponent(text)}`;
 
+/** WhatsApp text for a quick request ("Pedidos rápidos") — shared by the portal and the admin preview. */
+export const requestMessage = (hotelName: string, label: string, room: string) =>
+  `Olá, ${hotelName}! Gostaria de: ${label}${room ? ` — Acomodação ${room}` : ''}. Obrigado!`;
+
 export async function copyText(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text);

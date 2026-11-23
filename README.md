@@ -44,11 +44,26 @@ Build command `npm run build`, output `dist`. As rotas usam hash (`#/mapa`), ent
 ## Painel administrativo
 
 - **Identidade & Configurações** — nome, textos, contato, Wi-Fi, imagens, paleta de cores e **logo** (substitui o monograma).
-- **Painel Inicial** — cria, exclui, reordena, oculta e edita os atalhos de "Sua estadia, em um toque" (também usados no menu lateral).
+- **Painel Inicial** — cria, exclui, reordena, oculta e edita os atalhos de "Sua estadia, em um toque" (também usados no menu lateral)
+  e os **pedidos rápidos** de "Falar com a Recepção" (cada um abre o WhatsApp da recepção com a mensagem pronta).
 - **Recados & Avisos** — avisos ao vivo no topo do Início.
 - **Programação & Eventos** — agenda semanal; atividades novas nascem como **rascunho** (salvas, mas ocultas) até serem publicadas.
 - **Horários & Serviços** e **Editor Visual do Mapa**.
 - **Relatórios** — atalhos mais clicados, eventos com mais interesse, o que os hóspedes mais pedem, serviços/pontos mais vistos, uso por horário e por dia; exportação CSV.
+
+### Imagens
+
+Todas as imagens (logo, banner, rodapé, serviços, mapa e pontos do mapa) são enviadas **por upload** — não há campo de URL.
+Antes de subir, o próprio navegador redimensiona e comprime a foto (WebP; JPEG/PNG onde WebP não é suportado):
+
+| Uso                        | Lado maior | Tamanho alvo |
+| -------------------------- | ---------- | ------------ |
+| Logo (SVG também é aceito) | 480 px     | ~150 KB      |
+| Banner principal           | 1920 px    | ~400 KB      |
+| Rodapé, serviços, pontos   | 1280 px    | ~250 KB      |
+| Mapa                       | 2048 px    | ~600 KB      |
+
+Originais de até 15 MB são aceitos. No servidor, o bucket recusa qualquer arquivo acima de **1 MB** (`0003_image_limits.sql`).
 
 Para o hóspede, "Adicionar à agenda" baixa um arquivo `.ics` com alarme 15 min antes — quem avisa é a agenda do próprio celular.
 
@@ -93,7 +108,7 @@ telefone ou quarto). Cliques feitos na pré-visualização do admin não contam.
 
 ### Segurança do login (uma vez)
 
-6. **SQL Editor:** rode `supabase/migrations/0002_require_mfa.sql` — o banco passa a exigir 2FA para editar e ver relatórios.
+6. **SQL Editor:** rode `supabase/migrations/0003_image_limits.sql` (limite de 1 MB por imagem) e `supabase/migrations/0002_require_mfa.sql` — o banco passa a exigir 2FA para editar e ver relatórios.
 7. **Authentication → URL Configuration:** _Site URL_ = endereço do site (ex.: `https://seu-site.vercel.app`) e, em
    _Redirect URLs_, adicione `https://seu-site.vercel.app/**` e `http://localhost:5173/**` (usado pelo "Esqueci minha senha").
 8. **Authentication → Providers → Email:** senha mínima de 10 caracteres, exigindo letras e números.
@@ -143,7 +158,8 @@ Papéis: **owner** e **admin** editam tudo; **staff** vê só os Relatórios.
 - [x] Login de administradores + RLS + papéis
 - [x] Analytics de todos os hóspedes no banco
 - [x] Upload de logo no Storage
-- [ ] Upload das demais fotos (banner, serviços, mapa) pelo painel
+- [x] Upload das demais fotos (banner, serviços, mapa) com compressão automática
+- [x] Edição dos pedidos rápidos (WhatsApp) pelo painel
 - [x] 2FA obrigatória, recuperação de senha, CAPTCHA e logout por inatividade
 - [ ] Gestão de usuários pelo próprio painel (convites, papéis, redefinir 2FA)
 - [ ] Multi-hotel (um site para vários hotéis por subdomínio)

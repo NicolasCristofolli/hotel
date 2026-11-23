@@ -2,7 +2,7 @@ import { motion } from 'framer-motion';
 import { ArrowUpRight, DoorOpen, MessageCircle, PhoneCall } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Icon } from '../lib/icons';
-import { formatPhone, waLink } from '../lib/actions';
+import { formatPhone, requestMessage, waLink } from '../lib/actions';
 import { useTrack } from '../lib/analytics';
 import { useGuest } from '../state/GuestContext';
 import { useHotel } from '../state/HotelContext';
@@ -23,11 +23,12 @@ export function ContactSheet() {
     localStorage.setItem(ROOM_KEY, room);
   }, [room]);
 
+  const requests = config.quickRequests.filter((q) => q.active !== false && q.label.trim());
   const roomSuffix = room ? ` — Acomodação ${room}` : '';
 
   const request = (reqId: string, label: string) => {
     track('request', reqId, label);
-    window.open(waLink(id.whatsapp, `Olá, ${id.shortName}! Gostaria de: ${label}${roomSuffix}. Obrigado!`), '_blank', 'noopener');
+    window.open(waLink(id.whatsapp, requestMessage(id.shortName, label, room)), '_blank', 'noopener');
     toast('Solicitação preparada', `${label} • enviada pelo WhatsApp`);
   };
 
@@ -71,9 +72,9 @@ export function ContactSheet() {
         </label>
       </div>
 
-      <h3 className="sheet-sub">Pedidos rápidos</h3>
+      {requests.length > 0 && <h3 className="sheet-sub">Pedidos rápidos</h3>}
       <div className="request-grid">
-        {config.quickRequests.map((q, i) => (
+        {requests.map((q, i) => (
           <motion.button
             key={q.id}
             className="request-chip"

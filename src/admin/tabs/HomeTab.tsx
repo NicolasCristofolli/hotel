@@ -7,6 +7,7 @@ import { useHotel } from '../../state/HotelContext';
 import { useToast } from '../../state/ToastContext';
 import type { QuickAction, QuickActionKind } from '../../types';
 import { Card, Empty, Field, Input, Select, Toggle } from '../ui';
+import { QuickRequestsCard } from './QuickRequestsCard';
 
 const KINDS: { value: QuickActionKind; label: string }[] = [
   { value: 'route', label: 'Abrir página do portal' },
@@ -15,8 +16,17 @@ const KINDS: { value: QuickActionKind; label: string }[] = [
   { value: 'url', label: 'Abrir link externo' },
 ];
 
-/** Editor for the shortcut grid on the guest home ("Sua estadia, em um toque") — also used by the side menu. */
 export function HomeTab() {
+  return (
+    <div className="a-stack">
+      <ShortcutsCard />
+      <QuickRequestsCard />
+    </div>
+  );
+}
+
+/** Editor for the shortcut grid on the guest home ("Sua estadia, em um toque") — also used by the side menu. */
+function ShortcutsCard() {
   const { config, setConfig } = useHotel();
   const toast = useToast();
   const actions = config.quickActions;

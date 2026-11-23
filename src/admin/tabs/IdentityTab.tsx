@@ -1,10 +1,8 @@
-import { Check, ImagePlus, Trash2 } from 'lucide-react';
-import { useRef, useState } from 'react';
-import { storeImage } from '../../lib/assets';
-import { useToast } from '../../state/ToastContext';
+import { Check } from 'lucide-react';
 import { PALETTE_PRESETS } from '../../config/defaultHotelConfig';
 import { useHotel } from '../../state/HotelContext';
 import type { Identity, ThemeColors } from '../../types';
+import { ImageField } from '../ImageField';
 import { Card, Field, Input, Textarea } from '../ui';
 
 const COLOR_FIELDS: { key: keyof ThemeColors; label: string; css: string }[] = [
@@ -42,7 +40,15 @@ export function IdentityTab() {
           <Field label="Monograma" hint={id.logo ? 'Usado quando não há logo' : '2–3 letras'}>
             <Input {...text('monogram')} maxLength={3} />
           </Field>
-          <LogoField value={id.logo} onChange={(v) => set('logo', v)} />
+          <ImageField
+            label="Logo do hotel"
+            preset="logo"
+            name="logo"
+            value={id.logo}
+            onChange={(v) => set('logo', v)}
+            emptyText="Sem logo"
+            hint="Quando definida, substitui o monograma em todo o portal"
+          />
           <Field label="Subtítulo / Região">
             <Input {...text('subtitle')} />
           </Field>
@@ -93,16 +99,23 @@ export function IdentityTab() {
         </div>
       </Card>
 
-      <Card title="Imagens" desc="Cole URLs de imagens em alta resolução (ex.: Unsplash).">
+      <Card title="Imagens" desc="Envie as fotos do seu computador ou celular — elas são otimizadas automaticamente.">
         <div className="a-form">
-          <Field label="Imagem do banner principal" wide>
-            <Input {...text('heroImage')} />
-          </Field>
-          <div className="a-img-preview is-wide" style={{ backgroundImage: `url(${id.heroImage})` }} />
-          <Field label="Imagem do rodapé" wide>
-            <Input {...text('footerImage')} />
-          </Field>
-          <div className="a-img-preview is-wide short" style={{ backgroundImage: `url(${id.footerImage})` }} />
+          <ImageField
+            label="Imagem do banner principal"
+            preset="hero"
+            name="hero"
+            value={id.heroImage}
+            onChange={(v) => set('heroImage', v)}
+          />
+          <ImageField
+            label="Imagem do rodapé"
+            preset="photo"
+            name="footer"
+            size="short"
+            value={id.footerImage}
+            onChange={(v) => set('footerImage', v)}
+          />
         </div>
       </Card>
 
@@ -136,86 +149,6 @@ export function IdentityTab() {
           ))}
         </div>
       </Card>
-    </div>
-  );
-}
-
-/** Downscale uploads so they fit comfortably in storage (keeps PNG transparency). */
-function readLogo(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = reject;
-    reader.onload = () => {
-      const src = String(reader.result);
-      if (file.type === 'image/svg+xml') return resolve(src);
-      const img = new Image();
-      img.onerror = reject;
-      img.onload = () => {
-        const scale = Math.min(1, 480 / Math.max(img.width, img.height));
-        const c = document.createElement('canvas');
-        c.width = Math.round(img.width * scale);
-        c.height = Math.round(img.height * scale);
-        c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height);
-        resolve(c.toDataURL('image/png'));
-      };
-      img.src = src;
-    };
-    reader.readAsDataURL(file);
-  });
-}
-
-function LogoField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const input = useRef<HTMLInputElement>(null);
-  const toast = useToast();
-  const [uploading, setUploading] = useState(false);
-  const isUrl = value && !value.startsWith('data:');
-
-  const upload = async (f: File) => {
-    setUploading(true);
-    try {
-      onChange(await storeImage(await readLogo(f), 'logo'));
-      toast('Logo atualizada');
-    } catch (e) {
-      toast('Falha ao enviar a logo', (e as Error).message);
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  return (
-    // A <div>, not <Field>'s <label>: clicking the caption must not open the file picker.
-    <div className="a-field is-wide">
-      <span className="a-label">Logo do hotel</span>
-      <div className="a-logo">
-        {value && (
-          <div className="a-logo-preview">
-            <img src={value} alt="Logo" />
-          </div>
-        )}
-        <div className="a-logo-actions">
-          <button type="button" className="a-btn a-btn-outline" onClick={() => input.current?.click()} disabled={uploading}>
-            <ImagePlus size={16} /> {uploading ? 'Enviando…' : 'Enviar imagem'}
-          </button>
-          {value && (
-            <button type="button" className="a-btn a-btn-danger" onClick={() => onChange('')}>
-              <Trash2 size={16} /> Remover
-            </button>
-          )}
-          <Input placeholder="…ou cole a URL da logo" value={isUrl ? value : ''} onChange={(e) => onChange(e.target.value.trim())} />
-        </div>
-        <input
-          ref={input}
-          type="file"
-          accept="image/png,image/jpeg,image/webp,image/svg+xml"
-          hidden
-          onChange={async (e) => {
-            const f = e.target.files?.[0];
-            e.target.value = '';
-            if (f) upload(f);
-          }}
-        />
-      </div>
-      <span className="a-hint">PNG transparente ou SVG. Quando definida, substitui o monograma em todo o portal.</span>
     </div>
   );
 }

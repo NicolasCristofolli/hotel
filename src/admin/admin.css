@@ -321,17 +321,6 @@
   background-position: right 12px center;
   padding-right: 32px;
 }
-.a-img-preview {
-  height: 140px;
-  border-radius: 12px;
-  background-size: cover;
-  background-position: center;
-  background-color: var(--a-bg);
-  border: 1px solid var(--a-line);
-}
-.a-img-preview.short {
-  height: 90px;
-}
 
 .a-toggle {
   position: relative;
@@ -929,38 +918,80 @@
   flex-shrink: 0;
 }
 
-.a-logo {
+/* Image upload (ImageField) */
+.a-image {
   display: flex;
-  gap: 14px;
-  align-items: center;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 10px;
 }
-.a-logo-preview {
-  width: 120px;
-  height: 72px;
+.a-image-preview {
+  position: relative;
+  width: 100%;
+  height: 160px;
+  padding: 0;
+  overflow: hidden;
   display: grid;
   place-items: center;
   border-radius: 12px;
-  border: 1px dashed color-mix(in srgb, currentColor 25%, transparent);
-  background: repeating-conic-gradient(#0000000a 0% 25%, transparent 0% 50%) 0 0 / 14px 14px;
-  font-size: 12px;
-  opacity: 0.9;
+  border: 1px solid var(--a-line);
+  background: var(--a-bg);
+  color: var(--a-muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
 }
-.a-logo-preview img {
-  max-width: 100%;
-  max-height: 100%;
+.a-image-preview.short {
+  height: 100px;
+}
+.a-image-preview.is-empty {
+  border-style: dashed;
+}
+.a-image-preview:hover:not(:disabled) {
+  border-color: var(--color-accent);
+}
+.a-image-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.a-image.is-logo {
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.a-image.is-logo .a-image-preview {
+  width: 140px;
+  height: 84px;
+  border-style: dashed;
+  background: repeating-conic-gradient(#0000000a 0% 25%, transparent 0% 50%) 0 0 / 14px 14px;
+}
+.a-image.is-logo .a-image-preview img {
   object-fit: contain;
   padding: 6px;
 }
-.a-logo-actions {
-  flex: 1;
-  min-width: 220px;
+.a-image-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
-.a-logo-actions .a-input {
-  flex-basis: 100%;
+.a-image-busy {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: color-mix(in srgb, var(--a-surface) 80%, transparent);
+  color: var(--a-text);
+  font-weight: 600;
+}
+.spin {
+  animation: a-spin 0.9s linear infinite;
+}
+@keyframes a-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Drafts (Programação) */
@@ -1294,4 +1325,17 @@
 .a-user small {
   display: block;
   opacity: 0.6;
+}
+
+/* Quick requests — WhatsApp message preview */
+.a-wa-preview {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  font-style: italic;
+}
+.a-wa-preview svg {
+  flex-shrink: 0;
+  margin-top: 1px;
 }

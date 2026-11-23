@@ -6,6 +6,7 @@ import { uid } from '../../lib/status';
 import { useHotel } from '../../state/HotelContext';
 import { useToast } from '../../state/ToastContext';
 import type { MapPin } from '../../types';
+import { ImageField } from '../ImageField';
 import { Card, Field, Input, Segmented, Textarea } from '../ui';
 
 type Mode = 'move' | 'add';
@@ -112,9 +113,16 @@ export function MapEditorTab() {
             <RotateCcw size={16} /> Restaurar Dados Padrão
           </button>
         </div>
-        <Field label="Imagem do mapa (URL)" hint="Deixe em branco para usar o mapa ilustrado (adapta-se à paleta de cores)." wide>
-          <Input value={config.mapImage} placeholder="https://…" onChange={(e) => setConfig((p) => ({ ...p, mapImage: e.target.value }))} />
-        </Field>
+        <ImageField
+          label="Imagem do mapa"
+          preset="map"
+          name="map"
+          size="short"
+          value={config.mapImage}
+          onChange={(v) => setConfig((p) => ({ ...p, mapImage: v }))}
+          emptyText="Usando o mapa ilustrado"
+          hint="Proporção 4:3. Sem imagem, o portal usa o mapa ilustrado (adapta-se à paleta de cores)"
+        />
       </Card>
 
       <div className="a-stack">
@@ -171,9 +179,13 @@ export function MapEditorTab() {
               <Field label="Descrição" wide>
                 <Textarea value={selected.description} onChange={(e) => update(selected.id, { description: e.target.value })} />
               </Field>
-              <Field label="Foto (URL)" wide>
-                <Input value={selected.image} onChange={(e) => update(selected.id, { image: e.target.value })} />
-              </Field>
+              <ImageField
+                label="Foto do ponto"
+                preset="photo"
+                name={`pin-${selected.id}`}
+                value={selected.image}
+                onChange={(v) => update(selected.id, { image: v })}
+              />
               <Field label='Destino do "Ver Detalhes"' hint="Ex.: servicos/restaurante, experience/spa, programacao" wide>
                 <Input
                   value={selected.detailRoute ?? ''}

@@ -7,6 +7,7 @@ import { fmtRange, getServiceStatus } from '../../lib/status';
 import { useHotel, useNow } from '../../state/HotelContext';
 import type { Service, StatusOverride } from '../../types';
 import { CATEGORIES } from '../../views/ServicesView';
+import { ImageField } from '../ImageField';
 import { Card, Field, Input, Segmented, Textarea, Toggle } from '../ui';
 
 const OVERRIDES: { value: StatusOverride; label: string }[] = [
@@ -103,9 +104,13 @@ export function ServicesTab() {
                                 <small>{s.bookable ? 'Botão "Reservar" visível' : 'Sem reservas'}</small>
                               </div>
                             </Field>
-                            <Field label="Imagem (URL)" wide>
-                              <Input value={s.image} onChange={(e) => update(s.id, { image: e.target.value })} />
-                            </Field>
+                            <ImageField
+                              label="Foto do serviço"
+                              preset="photo"
+                              name={`service-${s.id}`}
+                              value={s.image}
+                              onChange={(v) => update(s.id, { image: v })}
+                            />
                           </div>
                         </motion.div>
                       )}
