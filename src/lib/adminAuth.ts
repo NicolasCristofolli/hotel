@@ -66,6 +66,11 @@ export const AUTH_ERRORS: Record<string, string> = {
 
 export function authMessage(err: { message: string; status?: number }) {
   if (err.status === 429) return 'Muitas tentativas. Aguarde alguns minutos.';
+  // 5xx with an empty body ("{}"): the auth server couldn't finish, usually the e-mail (SMTP) didn't go out.
+  if ((err.status ?? 0) >= 500 || !err.message || err.message === '{}')
+    return /mail|smtp/i.test(err.message)
+      ? 'Não foi possível enviar o e-mail agora. Tente de novo em alguns minutos ou fale com o suporte.'
+      : 'O servidor de login não respondeu. Tente de novo em alguns minutos ou fale com o suporte.';
   if (/captcha/i.test(err.message)) return 'Verificação anti-robô falhou. Tente de novo.';
   if (/expired|verifier|invalid.*(code|grant|flow)/i.test(err.message))
     return 'Link expirado ou inválido. Peça um novo e abra no mesmo navegador.';
