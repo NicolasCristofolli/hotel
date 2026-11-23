@@ -1,7 +1,8 @@
 import { CalendarPlus, Download, Info, MessageCircle, MousePointerClick, Sparkles, Trash2, Users } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { store, type AnalyticsEvent, type AnalyticsType } from '../../lib/analytics';
+import { store, type AnalyticsType } from '../../lib/analytics';
 import { generateDemoData } from '../../lib/analyticsDemo';
+import { addDays, dayKeyUTC, loadReport, parseDay, RAW_RETENTION_DAYS, type Report, type ReportTarget } from '../../lib/reports';
 import { useAdminAccess } from '../../state/AdminAccess';
 import { useHotel } from '../../state/HotelContext';
 import { useToast } from '../../state/ToastContext';
@@ -16,136 +17,127 @@ const PERIODS: { value: Period; label: string }[] = [
 ];
 const DAY = 86_400_000;
 
-function periodStart(p: Period, now = new Date()) {
-  const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  if (p === 'today') return midnight;
-  if (p === '7d') return midnight - 6 * DAY;
-  if (p === '30d') return midnight - 29 * DAY;
-  return 0;
-}
+/** Days covered by each period, counted back from today (in the hotel's time zone); null = everything. */
+const PERIOD_DAYS: Record<Period, number | null> = { today: 1, '7d': 7, '30d': 30, all: null };
 
 const REQUEST_TYPES: AnalyticsType[] = ['request', 'booking', 'whatsapp'];
 
-/** Count by target (keeping the most recent label), sorted desc. */
-function rank(events: AnalyticsEvent[], types: AnalyticsType[], labelFor?: (e: AnalyticsEvent) => string) {
-  const m = new Map<string, { label: string; n: number }>();
-  for (const e of events) {
-    if (!types.includes(e.type)) continue;
-    const k = `${e.type === 'booking' ? 'b:' : ''}${e.target}`;
-    const cur = m.get(k) ?? { label: '', n: 0 };
-    m.set(k, { label: labelFor ? labelFor(e) : e.label, n: cur.n + 1 });
+type Row = { id: string; label: string; n: number; note?: string };
+
+/** Ranking by item, from the report's per-item totals. Bookings are kept apart from service views. */
+function rank(targets: ReportTarget[], types: AnalyticsType[], labelFor?: (t: ReportTarget) => string): Row[] {
+  const m = new Map<string, Row>();
+  for (const t of targets) {
+    if (!types.includes(t.type as AnalyticsType)) continue;
+    const id = `${t.type === 'booking' ? 'b:' : ''}${t.target}`;
+    const cur = m.get(id) ?? { id, label: '', n: 0 };
+    m.set(id, { id, label: labelFor ? labelFor(t) : t.label, n: cur.n + t.n });
   }
-  return [...m.entries()].map(([id, v]) => ({ id, ...v })).sort((a, b) => b.n - a.n);
+  return [...m.values()].sort((a, b) => b.n - a.n);
 }
 
 export function ReportsTab() {
   const { config } = useHotel();
   const toast = useToast();
   const [period, setPeriod] = useState<Period>('7d');
-  const [all, setAll] = useState<AnalyticsEvent[]>([]);
+  const [report, setReport] = useState<Report | null>(null);
   const [tick, setTick] = useState(0);
   const [loadError, setLoadError] = useState('');
   const { canEdit } = useAdminAccess();
 
+  const days = PERIOD_DAYS[period];
+
   useEffect(() => store.subscribe(() => setTick((t) => t + 1)), []);
   useEffect(() => {
     let alive = true;
-    store
-      .query(0)
-      .then((d) => alive && (setAll(d), setLoadError('')))
+    loadReport(days)
+      .then((r) => alive && (setReport(r), setLoadError('')))
       .catch((e: Error) => alive && setLoadError(e.message));
     return () => {
       alive = false;
     };
-  }, [tick]);
+  }, [tick, days]);
 
-  const from = periodStart(period);
-  const events = useMemo(() => all.filter((e) => e.ts >= from), [all, from]);
-
-  // Previous equal-length window → trend on the KPI tiles
-  const prev = useMemo(() => {
-    if (period === 'all') return null;
-    const len = period === 'today' ? DAY : (period === '7d' ? 7 : 30) * DAY;
-    return all.filter((e) => e.ts >= from - len && e.ts < from);
-  }, [all, from, period]);
-
-  const count = (list: AnalyticsEvent[] | null, types: AnalyticsType[]) =>
-    list ? list.filter((e) => types.includes(e.type)).length : null;
+  const totals = report?.totals ?? {};
+  const sum = (t: Record<string, number> | null | undefined, types: AnalyticsType[]) =>
+    t ? types.reduce((n, k) => n + Number(t[k] ?? 0), 0) : null;
   const kpis = [
     { label: 'Acessos ao portal', icon: Users, types: ['session'] as AnalyticsType[] },
     { label: 'Cliques em atalhos', icon: MousePointerClick, types: ['shortcut'] as AnalyticsType[] },
     { label: 'Pedidos à recepção', icon: MessageCircle, types: REQUEST_TYPES },
     { label: 'Eventos na agenda', icon: CalendarPlus, types: ['calendar'] as AnalyticsType[] },
-  ].map((k) => ({ ...k, value: count(events, k.types)!, before: count(prev, k.types) }));
+  ].map((k) => ({ ...k, value: sum(totals, k.types)!, before: sum(report?.prevTotals, k.types) }));
+  const hasData = Object.keys(totals).length > 0;
 
-  const shortcuts = rank(events, ['shortcut']);
-  const requests = rank(events, REQUEST_TYPES, (e) =>
-    e.type === 'booking' ? `Reserva • ${e.label}` : e.type === 'whatsapp' ? 'Conversa livre no WhatsApp' : e.label,
+  const targets = report?.targets ?? [];
+  const shortcuts = rank(targets, ['shortcut']);
+  const requests = rank(targets, REQUEST_TYPES, (t) =>
+    t.type === 'booking' ? `Reserva • ${t.label}` : t.type === 'whatsapp' ? 'Conversa livre no WhatsApp' : t.label,
   );
-  const services = rank(events, ['service', 'booking'], (e) => e.label);
-  const pins = rank(events, ['pin']);
-  const pages = rank(events, ['page']);
+  const services = rank(targets, ['service', 'booking']);
+  const pins = rank(targets, ['pin']);
+  const pages = rank(targets, ['page']);
 
   // Events: interest = added to calendar + "ver no mapa"
   const eventInterest = useMemo(() => {
     const m = new Map<string, { label: string; cal: number; map: number }>();
-    for (const e of events) {
-      if (e.type !== 'calendar' && e.type !== 'event_map') continue;
-      const cur = m.get(e.target) ?? { label: e.label, cal: 0, map: 0 };
-      if (e.type === 'calendar') cur.cal++;
-      else cur.map++;
-      cur.label = e.label;
-      m.set(e.target, cur);
+    for (const t of targets) {
+      if (t.type !== 'calendar' && t.type !== 'event_map') continue;
+      const cur = m.get(t.target) ?? { label: t.label, cal: 0, map: 0 };
+      if (t.type === 'calendar') cur.cal += t.n;
+      else cur.map += t.n;
+      m.set(t.target, cur);
     }
     return [...m.entries()]
       .map(([id, v]) => ({ id, label: v.label, n: v.cal + v.map, note: `${v.cal} na agenda • ${v.map} no mapa` }))
       .sort((a, b) => b.n - a.n);
-  }, [events]);
+  }, [targets]);
 
-  const byHour = useMemo(() => {
-    const h = Array.from({ length: 24 }, () => 0);
-    for (const e of events) if (e.type !== 'page') h[new Date(e.ts).getHours()]++;
-    return h.map((n, i) => ({
-      key: String(i),
-      label: `${String(i).padStart(2, '0')}h`,
-      n,
-      tip: `${n} interações entre ${i}h e ${i + 1}h`,
-    }));
-  }, [events]);
+  const byHour = (report?.byHour ?? Array.from({ length: 24 }, () => 0)).map((n, i) => ({
+    key: String(i),
+    label: `${String(i).padStart(2, '0')}h`,
+    n,
+    tip: `${n} interações entre ${i}h e ${i + 1}h`,
+  }));
 
   const byDay = useMemo(() => {
-    if (period === 'today') return [];
-    const start = period === 'all' ? (events.length ? Math.min(...events.map((e) => e.ts)) : Date.now()) : from;
-    const first = new Date(start);
-    first.setHours(0, 0, 0, 0);
-    const days = Math.min(90, Math.floor((Date.now() - first.getTime()) / DAY) + 1);
-    const buckets = Array.from({ length: days }, (_, i) => {
-      const d = new Date(first.getTime() + i * DAY);
-      return { d, n: 0 };
+    if (!report || days === 1) return [];
+    // Calendar days in the hotel's time zone (as returned by the report); "Tudo" shows up to the last 365.
+    const end = parseDay(report.today).getTime();
+    const span = days ?? Math.min(365, report.first ? Math.round((end - parseDay(report.first).getTime()) / DAY) + 1 : 1);
+    const counts = new Map(report.byDay.map((d) => [d.day, d.n]));
+    return Array.from({ length: span }, (_, i) => {
+      const ms = addDays(report.today, i - span + 1);
+      const n = counts.get(dayKeyUTC(ms)) ?? 0;
+      const d = new Date(ms);
+      const label = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'UTC' });
+      const wd = d.toLocaleDateString('pt-BR', { weekday: 'short', timeZone: 'UTC' }).replace('.', '');
+      return { key: String(i), label, n, tip: `${wd} ${label} • ${n} acessos` };
     });
-    for (const e of events) {
-      if (e.type !== 'session') continue;
-      const i = Math.floor((e.ts - first.getTime()) / DAY);
-      if (buckets[i]) buckets[i].n++;
-    }
-    return buckets.map((b, i) => {
-      const label = b.d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
-      const wd = b.d.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '');
-      return { key: String(i), label, n: b.n, tip: `${wd} ${label} • ${b.n} acessos` };
-    });
-  }, [events, period, from]);
+  }, [report, days]);
 
-  const exportCsv = () => {
-    const rows = [
-      ['data_hora', 'tipo', 'id', 'nome', 'visita'],
-      ...events.map((e) => [new Date(e.ts).toISOString(), e.type, e.target, e.label, e.sid]),
-    ];
-    const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
-    a.download = `relatorio-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  // Detail export: individual clicks (kept for RAW_RETENTION_DAYS in the database).
+  const exportCsv = async () => {
+    try {
+      const now = new Date();
+      const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+      const from = days === null ? 0 : midnight - (days - 1) * DAY;
+      const since = store.local ? from : Math.max(from, midnight - RAW_RETENTION_DAYS * DAY);
+      const events = await store.query(since);
+      if (!events.length) return toast('Nada para exportar', 'Sem cliques individuais neste período');
+      const rows = [
+        ['data_hora', 'tipo', 'id', 'nome', 'visita'],
+        ...events.map((e) => [new Date(e.ts).toISOString(), e.type, e.target, e.label, e.sid]),
+      ];
+      const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' }));
+      a.download = `relatorio-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    } catch (e) {
+      toast('Não foi possível exportar', (e as Error).message);
+    }
   };
 
   const onDemo = () => {
@@ -171,16 +163,21 @@ export function ReportsTab() {
       <div className="r-toolbar">
         <Segmented value={period} options={PERIODS} onChange={setPeriod} />
         <span className="grow" />
-        {all.length === 0 && store.local && (
+        {store.local && (
           <button className="a-btn a-btn-outline" onClick={onDemo}>
             <Sparkles size={16} /> Gerar dados de exemplo
           </button>
         )}
-        <button className="a-btn a-btn-outline" onClick={exportCsv} disabled={!events.length}>
+        <button
+          className="a-btn a-btn-outline"
+          onClick={exportCsv}
+          disabled={!hasData}
+          title={store.local ? undefined : `Cliques individuais dos últimos ${RAW_RETENTION_DAYS} dias`}
+        >
           <Download size={16} /> Exportar CSV
         </button>
         {canEdit && (
-          <button className="a-btn a-btn-ghost r-clear" onClick={onClear} disabled={!all.length}>
+          <button className="a-btn a-btn-ghost r-clear" onClick={onClear} disabled={!report || report.first === null}>
             <Trash2 size={16} /> Limpar
           </button>
         )}

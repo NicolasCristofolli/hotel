@@ -1,3 +1,4 @@
+// @ts-nocheck — runs on Deno inside Supabase; the editor's Node TypeScript doesn't know `Deno` or `npm:` imports.
 // ════════════════════════════════════════════════════════════════════
 //  Edge Function: invite-admin
 //  Convida (ou vincula) um administrador a um hotel. Só admins da plataforma com 2FA podem chamar.

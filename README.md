@@ -144,6 +144,15 @@ telefone ou quarto). Cliques feitos na pré-visualização do admin não contam.
     3. Só então: Supabase → _Authentication → Attack Protection → Enable Captcha protection_ → Turnstile → cole a Secret Key.
        (Se ativar no Supabase antes do site ter a chave, ninguém consegue entrar.)
 
+### Relatórios agregados (uma vez)
+
+**SQL Editor:** rode `supabase/migrations/0007_analytics_rollup.sql`. Ele cria os resumos por dia e por hora (preenchidos
+automaticamente a cada clique), já resume o histórico existente e agenda a limpeza diária dos cliques individuais com mais
+de 90 dias (`pg_cron`). Se aparecer o aviso "pg_cron indisponível", ative em _Database → Extensions → pg_cron_ e rode o
+arquivo de novo. A aba Relatórios passa a receber o relatório pronto do banco (~15 KB, em milissegundos), em vez de baixar
+todos os cliques; o "Exportar CSV" traz os cliques individuais dos últimos 90 dias. Dias e horários seguem o fuso do hotel
+(`hotels.timezone`, padrão `America/Sao_Paulo`).
+
 ### Super admin da plataforma (`hotelguia.com.br/painel`)
 
 Cria hotéis, convida os administradores de cada um, troca papéis, remove acessos e redefine a 2FA de quem perdeu o celular.
@@ -212,5 +221,5 @@ Papéis: **owner** e **admin** editam tudo; **staff** vê só os Relatórios.
 - [x] Editor de Experiências com upload de foto
 - [x] Portal dos hóspedes lido do CDN (o banco só é usado quando o admin salva)
 - [x] Super admin da plataforma (criar hotéis, convidar admins, redefinir 2FA)
-- [ ] Relatórios agregados por dia (resumos no banco + limpeza dos eventos antigos)
+- [x] Relatórios agregados no banco (resumos por dia/hora + limpeza dos cliques com mais de 90 dias)
 - [ ] Vitrine de hotéis parceiros na página inicial
