@@ -27,10 +27,30 @@ O CI (`.github/workflows/ci.yml`) roda formatação + build a cada push/PR na `m
 
 ## Deploy
 
-É um site estático: publique a pasta `dist/` em qualquer hospedagem (Vercel, Netlify, Cloudflare Pages, GitHub Pages…).
-Build command `npm run build`, output `dist`. As rotas usam hash (`#/mapa`), então não é preciso configurar rewrites.
+Um único site serve todos os hotéis: **`hotelguia.com.br/<id-do-hotel>`** (o id é a linha da tabela `hotels`).
+Build command `npm run build`, output `dist`. Como o hotel vem do caminho da URL, a hospedagem precisa devolver o
+`index.html` para qualquer caminho — o `vercel.json` já faz isso (em outra hospedagem, configure o equivalente "SPA fallback").
+
+### Domínio hotelguia.com.br (Vercel + Registro.br)
+
+1. Vercel → projeto → **Settings → Domains → Add**: `hotelguia.com.br` e `www.hotelguia.com.br` (redirecionando para o sem www).
+2. A Vercel mostra os registros DNS. No **Registro.br → domínio → DNS → Editar zona**, crie exatamente os que ela pedir
+   (normalmente um `A` para `hotelguia.com.br` e um `CNAME` para `www`). O HTTPS sai sozinho depois que o DNS propagar.
+3. Vercel → **Settings → Environment Variables**: **apague `VITE_HOTEL_ID`** (senão a raiz do site abre esse hotel em vez
+   da página da plataforma) e faça **Redeploy**.
+4. Supabase → **Authentication → URL Configuration**: _Site URL_ = `https://hotelguia.com.br`; em _Redirect URLs_, adicione
+   `https://hotelguia.com.br/**`.
+5. Se usar Turnstile: Cloudflare → Turnstile → widget → adicione o domínio `hotelguia.com.br`.
+6. Gere os QR Codes novos com o endereço do hotel (ex.: `https://hotelguia.com.br/vale-sereno`) — o painel de cada hotel fica
+   em `https://hotelguia.com.br/vale-sereno#/admin`.
 
 ## Rotas
+
+O primeiro trecho do caminho escolhe o hotel; o resto da navegação usa hash. `hotelguia.com.br/` é a página da plataforma
+(com campo para digitar o código do hotel) e um endereço de hotel inexistente mostra "Hotel não encontrado".
+Ids reservados (não podem ser hotel): veja `RESERVED` em `src/lib/tenant.ts` e `0005_multi_hotel.sql`.
+
+Dentro de `hotelguia.com.br/<id-do-hotel>`:
 
 | Rota                                                                 | Tela                                                                 |
 | -------------------------------------------------------------------- | -------------------------------------------------------------------- |
@@ -112,6 +132,7 @@ telefone ou quarto). Cliques feitos na pré-visualização do admin não contam.
    Depois rode `supabase/migrations/0004_public_config_cdn.sql` e **salve qualquer alteração no painel uma vez**: o portal dos
    hóspedes passa a ler `hotel-assets/<hotel>/config.json` pelo CDN (sem consultar o banco). Cada salvamento do admin
    republica o arquivo; os hóspedes veem a mudança em até ~1 minuto (ao voltar para a aba ou a cada 5 min com ela aberta).
+   Por fim rode `supabase/migrations/0005_multi_hotel.sql` (reserva ids usados pela plataforma).
 7. **Authentication → URL Configuration:** _Site URL_ = endereço do site (ex.: `https://seu-site.vercel.app`) e, em
    _Redirect URLs_, adicione `https://seu-site.vercel.app/**` e `http://localhost:5173/**` (usado pelo "Esqueci minha senha").
 8. **Authentication → Providers → Email:** senha mínima de 10 caracteres, exigindo letras e números.
@@ -136,12 +157,12 @@ no próximo login ele cadastra o app de novo.
 
 ### Como os dados fluem
 
-| Tabela / recurso       | Hóspede (anônimo)   | Admin logado                          |
-| ---------------------- | ------------------- | ------------------------------------- |
-| `hotels.config`        | lê + recebe ao vivo | edita (salva sozinho em ~1 s)         |
-| `analytics_events`     | só insere           | lê relatórios · owner/admin apagam    |
-| `hotel_admins`         | —                   | vê o próprio vínculo                  |
-| Storage `hotel-assets` | lê (público)        | envia/apaga arquivos do próprio hotel |
+| Tabela / recurso       | Hóspede (anônimo)         | Admin logado                                     |
+| ---------------------- | ------------------------- | ------------------------------------------------ |
+| `hotels.config`        | lê o `config.json` do CDN | edita (salva sozinho em ~1 s) e republica o JSON |
+| `analytics_events`     | só insere                 | lê relatórios · owner/admin apagam               |
+| `hotel_admins`         | —                         | vê o próprio vínculo                             |
+| Storage `hotel-assets` | lê (público)              | envia/apaga arquivos do próprio hotel            |
 
 Papéis: **owner** e **admin** editam tudo; **staff** vê só os Relatórios.
 
@@ -150,7 +171,7 @@ Papéis: **owner** e **admin** editam tudo; **staff** vê só os Relatórios.
 - Login com e-mail e senha + **verificação em 2 etapas obrigatória** (TOTP), CAPTCHA opcional e saída automática por inatividade.
 - As permissões são aplicadas **no banco** (RLS) e exigem sessão com 2FA (`aal2`): mesmo com a senha vazada, sem o código
   ninguém edita nem lê relatórios — nem chamando a API direto.
-- O portal não tem links para o painel; a equipe acessa por `/#/admin`.
+- O portal não tem links para o painel; a equipe acessa por `/<id-do-hotel>#/admin`.
 - A _publishable key_ é pública por design. **A _secret key_ (`sb_secret_…`) e a senha do banco nunca entram no código,
   no `.env` ou no git** — tudo com prefixo `VITE_` vai para o navegador.
 - Analytics são anônimos (sem nome, telefone ou quarto) e o horário é definido pelo servidor.
@@ -165,5 +186,9 @@ Papéis: **owner** e **admin** editam tudo; **staff** vê só os Relatórios.
 - [x] Edição dos pedidos rápidos (WhatsApp) pelo painel
 - [x] 2FA obrigatória, recuperação de senha, CAPTCHA e logout por inatividade
 - [ ] Gestão de usuários pelo próprio painel (convites, papéis, redefinir 2FA)
-- [ ] Multi-hotel (um site para vários hotéis por subdomínio)
+- [x] Multi-hotel: um site para todos os hotéis (`hotelguia.com.br/<id>`)
+- [x] Editor de Experiências com upload de foto
+- [x] Portal dos hóspedes lido do CDN (o banco só é usado quando o admin salva)
+- [ ] Super admin da plataforma (criar hotéis, convidar admins, redefinir 2FA)
+- [ ] Vitrine de hotéis parceiros na página inicial
 - [ ] Relatórios agregados no banco (para volumes muito grandes)

@@ -9,8 +9,9 @@ import { WEEKDAYS_LONG, WEEKDAYS_SHORT } from '../lib/status';
 import { useGuest } from '../state/GuestContext';
 import { useHotel, useNow } from '../state/HotelContext';
 import { useToast } from '../state/ToastContext';
+import { hotelKey } from '../lib/tenant';
 
-const REMIND_KEY = 'guia-hospede:reminders';
+const REMIND_KEY = hotelKey('guia-hospede:reminders');
 
 export function EventsView() {
   const { config } = useHotel();

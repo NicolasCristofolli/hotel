@@ -6,15 +6,30 @@ import { BrandMark } from './components/BrandMark';
 import { IMAGES } from './config/defaultHotelConfig';
 import { GuestApp } from './GuestApp';
 import { AdminAccessProvider, useAdminAccess } from './state/AdminAccess';
+import { hasHotel } from './lib/tenant';
+import { HotelLoading, HotelNotFound, HotelOffline, PlatformHome } from './platform/PlatformHome';
 import { HotelProvider, useHotel } from './state/HotelContext';
 
 export default function App() {
+  // hotelguia.com.br/ → platform; hotelguia.com.br/<hotel> → that hotel's portal (#/admin for its panel).
+  if (!hasHotel) return <PlatformHome />;
   return (
     <HotelProvider>
-      <AdminAccessProvider>
-        <Root />
-      </AdminAccessProvider>
+      <HotelGate />
     </HotelProvider>
+  );
+}
+
+/** Only mounts the portal/admin once this hotel's own content is known. */
+function HotelGate() {
+  const { presence } = useHotel();
+  if (presence === 'loading') return <HotelLoading />;
+  if (presence === 'missing') return <HotelNotFound />;
+  if (presence === 'offline') return <HotelOffline />;
+  return (
+    <AdminAccessProvider>
+      <Root />
+    </AdminAccessProvider>
   );
 }
 

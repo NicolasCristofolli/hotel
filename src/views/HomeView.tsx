@@ -10,8 +10,9 @@ import { fmtTime } from '../lib/status';
 import { useGuest } from '../state/GuestContext';
 import { useHotel, useNow } from '../state/HotelContext';
 import type { NoticePriority } from '../types';
+import { hotelKey } from '../lib/tenant';
 
-const DISMISS_KEY = 'guia-hospede:dismissed';
+const DISMISS_KEY = hotelKey('guia-hospede:dismissed');
 
 export const PRIORITY_META: Record<NoticePriority, { label: string; icon: typeof Megaphone }> = {
   aviso: { label: 'Aviso', icon: Megaphone },

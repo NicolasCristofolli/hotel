@@ -2,9 +2,10 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { defaultHotelConfig } from '../config/defaultHotelConfig';
 import { fetchPublicConfig, publishConfig } from '../lib/publicConfig';
 import { HOTEL_ID, isRemote, supabase } from '../lib/supabase';
+import { hotelKey } from '../lib/tenant';
 import type { HotelConfig } from '../types';
 
-const STORAGE_KEY = 'guia-hospede:config:v1';
+const STORAGE_KEY = hotelKey('guia-hospede:config:v1');
 const SAVE_DELAY = 800;
 /** How often an open guest portal re-checks the CDN snapshot. */
 const REVALIDATE_MS = 5 * 60_000;
@@ -18,6 +19,12 @@ export type SyncState =
   | { status: 'saving' }
   | { status: 'error'; message: string };
 
+/**
+ * Whether this hotel's content can be shown. Never falls back to the demo hotel's content in remote mode,
+ * so a new or mistyped hotel URL can't briefly show another hotel.
+ */
+export type Presence = 'loading' | 'ready' | 'missing' | 'offline';
+
 type Ctx = {
   config: HotelConfig;
   setConfig: (updater: (prev: HotelConfig) => HotelConfig) => void;
@@ -26,6 +33,7 @@ type Ctx = {
   sync: SyncState;
   /** Retry a failed save. */
   retry: () => void;
+  presence: Presence;
 };
 
 const HotelContext = createContext<Ctx | null>(null);
@@ -41,31 +49,64 @@ function normalize(parsed: Partial<HotelConfig> | null | undefined): HotelConfig
   };
 }
 
-function loadCache(): HotelConfig {
+function readCache(): HotelConfig | null {
   try {
-    return normalize(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null')) ?? defaultHotelConfig;
+    return normalize(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null'));
   } catch {
-    return defaultHotelConfig;
+    return null;
   }
 }
+const loadCache = () => readCache() ?? defaultHotelConfig;
+
+/** A hotel that exists but was never saved (config null): the template, under the hotel's own name. */
+function starterConfig(name: string): HotelConfig {
+  const words = name
+    .replace(/^(hotel|pousada|resort)\s+/i, '')
+    .split(/\s+/)
+    .filter(Boolean);
+  return {
+    ...defaultHotelConfig,
+    identity: {
+      ...defaultHotelConfig.identity,
+      name,
+      shortName: words.join(' ') || name,
+      monogram:
+        words
+          .map((w) => w[0])
+          .join('')
+          .slice(0, 2)
+          .toUpperCase() || name.slice(0, 2).toUpperCase(),
+    },
+  };
+}
+
+type HotelRow = { name: string; config: unknown };
+const fetchRow = async (db: NonNullable<typeof supabase>) => {
+  const { data, error } = await db.from('hotels').select('name, config').eq('id', HOTEL_ID).maybeSingle();
+  if (error) throw new Error(error.message);
+  return data as HotelRow | null;
+};
 
 export function HotelProvider({ children }: { children: ReactNode }) {
   // The local cache renders instantly (and offline); the database is the source of truth when configured.
   const [config, setState] = useState<HotelConfig>(loadCache);
   const [sync, setSync] = useState<SyncState>(isRemote ? { status: 'loading' } : { status: 'local' });
+  // Demo mode always has content; remote mode needs this hotel's cache or its first fetch.
+  const [presence, setPresence] = useState<Presence>(() => (!isRemote || readCache() ? 'ready' : 'loading'));
   const lastLocalEdit = useRef(0);
   const saveTimer = useRef<ReturnType<typeof setTimeout>>();
   const latest = useRef(config);
   latest.current = config;
 
-  // Persist cache
+  // Persist cache (only real content of this hotel — never a placeholder)
   useEffect(() => {
+    if (presence !== 'ready') return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
     } catch {
       /* quota / private mode — ignore */
     }
-  }, [config]);
+  }, [config, presence]);
 
   // Which audience is reading: the admin panel needs the live database; guests read the CDN snapshot.
   const [isAdmin, setIsAdmin] = useState(isAdminHash);
@@ -75,10 +116,11 @@ export function HotelProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
-  const applyRemote = useCallback((raw: unknown) => {
-    const remote = normalize(raw as Partial<HotelConfig> | null);
-    // A null config means "never saved" — keep the defaults (first admin save creates it).
+  const applyRemote = useCallback((raw: unknown, name?: string) => {
+    // A null config means "never saved" — show the template under the hotel's name (first admin save creates it).
+    const remote = normalize(raw as Partial<HotelConfig> | null) ?? (name ? starterConfig(name) : null);
     if (remote && Date.now() - lastLocalEdit.current > 3000) setState(remote);
+    setPresence('ready');
   }, []);
 
   // Guests: published snapshot on the Storage CDN — no database query, no realtime connection.
@@ -92,20 +134,22 @@ export function HotelProvider({ children }: { children: ReactNode }) {
     const refresh = async () => {
       lastCheck = Date.now();
       try {
-        let raw = await fetchPublicConfig();
-        if (raw === null) {
-          // Not published yet (no admin save since the CDN snapshot shipped) → read the database once.
-          const { data, error } = await db.from('hotels').select('config').eq('id', HOTEL_ID).maybeSingle();
-          if (error) throw new Error(error.message);
-          if (!data) throw new Error(`Hotel "${HOTEL_ID}" não encontrado no banco. Rode o SQL de instalação.`);
-          raw = data.config;
+        const raw = await fetchPublicConfig();
+        if (raw !== null) {
+          if (alive) applyRemote(raw);
+        } else {
+          // Not published yet (hotel never saved, or URL of a hotel that doesn't exist) → ask the database once.
+          const row = await fetchRow(db);
+          if (!alive) return;
+          if (!row) return setPresence('missing');
+          applyRemote(row.config, row.name);
         }
-        if (!alive) return;
-        applyRemote(raw);
         setSync({ status: 'synced' });
       } catch (e) {
-        // The local cache keeps the portal usable offline / if the CDN hiccups.
-        if (alive) setSync({ status: 'error', message: `Não foi possível atualizar: ${(e as Error).message}` });
+        // The local cache keeps the portal usable offline / if the CDN hiccups; without one, say so.
+        if (!alive) return;
+        setSync({ status: 'error', message: `Não foi possível atualizar: ${(e as Error).message}` });
+        setPresence((p) => (p === 'loading' ? 'offline' : p));
       }
     };
 
@@ -129,17 +173,19 @@ export function HotelProvider({ children }: { children: ReactNode }) {
     let alive = true;
     setSync({ status: 'loading' });
 
-    db.from('hotels')
-      .select('config')
-      .eq('id', HOTEL_ID)
-      .maybeSingle()
-      .then(({ data, error }) => {
+    fetchRow(db).then(
+      (row) => {
         if (!alive) return;
-        if (error) return setSync({ status: 'error', message: `Não foi possível carregar do banco: ${error.message}` });
-        if (!data) return setSync({ status: 'error', message: `Hotel "${HOTEL_ID}" não encontrado no banco. Rode o SQL de instalação.` });
-        applyRemote(data.config);
+        if (!row) return setPresence('missing');
+        applyRemote(row.config, row.name);
         setSync({ status: 'synced' });
-      });
+      },
+      (e: Error) => {
+        if (!alive) return;
+        setSync({ status: 'error', message: `Não foi possível carregar do banco: ${e.message}` });
+        setPresence((p) => (p === 'loading' ? 'offline' : p));
+      },
+    );
 
     const channel = db
       .channel(`hotel:${HOTEL_ID}`)
@@ -227,7 +273,10 @@ export function HotelProvider({ children }: { children: ReactNode }) {
   );
   const reset = useCallback(() => setConfig(() => defaultHotelConfig), [setConfig]);
 
-  const value = useMemo(() => ({ config, setConfig, patch, reset, sync, retry: save }), [config, setConfig, patch, reset, sync, save]);
+  const value = useMemo(
+    () => ({ config, setConfig, patch, reset, sync, retry: save, presence }),
+    [config, setConfig, patch, reset, sync, save, presence],
+  );
   return <HotelContext.Provider value={value}>{children}</HotelContext.Provider>;
 }
 

@@ -9,6 +9,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { useCallback } from 'react';
 import { HOTEL_ID, supabase } from './supabase';
 import { useGuest } from '../state/GuestContext';
+import { hotelKey } from './tenant';
 
 export type AnalyticsType =
   | 'session' //  a guest opened the portal
@@ -43,7 +44,7 @@ export interface AnalyticsStore {
   readonly local: boolean;
 }
 
-const KEY = 'guia-hospede:analytics';
+const KEY = hotelKey('guia-hospede:analytics');
 const MAX = 20_000;
 const CHANGE = 'guia-hospede:analytics-change';
 
@@ -165,7 +166,7 @@ class SupabaseStore implements AnalyticsStore {
 export const store: AnalyticsStore = supabase ? new SupabaseStore(supabase) : new LocalStore();
 
 // ── Recording ────────────────────────────────────────────
-const SID_KEY = 'guia-hospede:sid';
+const SID_KEY = hotelKey('guia-hospede:sid');
 function sessionId() {
   let sid = sessionStorage.getItem(SID_KEY);
   if (!sid) {

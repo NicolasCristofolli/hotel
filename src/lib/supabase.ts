@@ -3,8 +3,8 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 const url = import.meta.env.VITE_SUPABASE_URL?.replace(/\/rest\/v1\/?$/, '').replace(/\/$/, '');
 const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
-/** Which hotel this deployment serves (one row in `hotels`). */
-export const HOTEL_ID = import.meta.env.VITE_HOTEL_ID || 'vale-sereno';
+/** Which hotel this page serves — resolved from the URL path (see tenant.ts). */
+export { HOTEL_ID } from './tenant';
 
 /**
  * Supabase client, or null when the env vars are missing — the app then runs in

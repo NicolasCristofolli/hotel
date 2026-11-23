@@ -8,8 +8,9 @@ import { useGuest } from '../state/GuestContext';
 import { useHotel } from '../state/HotelContext';
 import { useToast } from '../state/ToastContext';
 import { BottomSheet } from './BottomSheet';
+import { hotelKey } from '../lib/tenant';
 
-const ROOM_KEY = 'guia-hospede:room';
+const ROOM_KEY = hotelKey('guia-hospede:room');
 
 export function ContactSheet() {
   const { config } = useHotel();
