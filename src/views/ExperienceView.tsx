@@ -9,8 +9,22 @@ import { useHotel } from '../state/HotelContext';
 export function ExperienceView() {
   const { config } = useHotel();
   const { route, navigate, setContactOpen } = useGuest();
-  const exp = config.experiences.find((e) => e.id === route.param) ?? config.experiences[0];
-  const [openItem, setOpenItem] = useState<string | null>(exp.items[0]?.id ?? null);
+  const exp = config.experiences.find((e) => e.id === route.param);
+  const [openItem, setOpenItem] = useState<string | null>(exp?.items[0]?.id ?? null);
+
+  // Deleted or renamed experience (old shortcut, shared link) → friendly fallback instead of a crash.
+  if (!exp) {
+    return (
+      <div className="page experience">
+        <p className="exp-intro">Esta página não está mais disponível.</p>
+        <div className="actionbar">
+          <button className="btn btn-primary btn-lg grow" onClick={() => navigate('')}>
+            Voltar ao início
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="page experience has-actionbar">

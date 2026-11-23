@@ -1,11 +1,25 @@
 import { motion } from 'framer-motion';
-import { BarChart3, CalendarDays, Clock, Eye, LayoutGrid, LogOut, Map, Megaphone, Palette, RotateCcw, Smartphone } from 'lucide-react';
+import {
+  BarChart3,
+  CalendarDays,
+  Clock,
+  Eye,
+  LayoutGrid,
+  LogOut,
+  Map,
+  Megaphone,
+  Palette,
+  RotateCcw,
+  Smartphone,
+  Sparkles,
+} from 'lucide-react';
 import { useState } from 'react';
 import { GuestApp } from '../GuestApp';
 import { useAdminAccess } from '../state/AdminAccess';
 import { useHotel } from '../state/HotelContext';
 import { ToastProvider, useToast } from '../state/ToastContext';
 import { EventsTab } from './tabs/EventsTab';
+import { ExperiencesTab } from './tabs/ExperiencesTab';
 import { HomeTab } from './tabs/HomeTab';
 import { IdentityTab } from './tabs/IdentityTab';
 import { MapEditorTab } from './tabs/MapEditorTab';
@@ -19,6 +33,7 @@ const TABS = [
   { id: 'notices', label: 'Recados & Avisos', short: 'Recados', icon: Megaphone, C: NoticesTab },
   { id: 'events', label: 'Programação & Eventos', short: 'Programação', icon: CalendarDays, C: EventsTab },
   { id: 'services', label: 'Horários & Serviços', short: 'Horários', icon: Clock, C: ServicesTab },
+  { id: 'experiences', label: 'Experiências', short: 'Experiências', icon: Sparkles, C: ExperiencesTab },
   { id: 'map', label: 'Editor Visual do Mapa', short: 'Mapa', icon: Map, C: MapEditorTab },
   { id: 'reports', label: 'Relatórios', short: 'Relatórios', icon: BarChart3, C: ReportsTab },
 ] as const;
