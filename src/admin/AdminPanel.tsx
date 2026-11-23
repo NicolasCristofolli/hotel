@@ -176,6 +176,7 @@ const ROLE_LABEL: Record<string, string> = {
   owner: 'Proprietário',
   admin: 'Administrador',
   staff: 'Equipe (relatórios)',
+  platform: 'Suporte da plataforma',
   demo: 'Demonstração',
 };
 

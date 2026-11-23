@@ -3,7 +3,10 @@ import { ArrowLeft, KeyRound, Lock, MailCheck, ShieldCheck } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { authMessage, LOGOUT_REASON_KEY, nextStep, RECOVERY_KEY, type AdminRole, type AuthStep } from '../../lib/adminAuth';
 import { supabase } from '../../lib/supabase';
+import { isPlatformPanel } from '../../lib/tenant';
 import { Turnstile, TURNSTILE_SITE_KEY } from './Turnstile';
+
+const LOGIN_TITLE = isPlatformPanel ? 'Plataforma Hotel Guia' : 'Painel Administrativo';
 
 type Step = AuthStep | 'loading' | 'forgot' | 'forgot-sent';
 
@@ -209,13 +212,11 @@ export function AdminLogin({
             exit={{ y: 20, scale: 0.98, opacity: 0 }}
             transition={{ type: 'spring', stiffness: 380, damping: 30 }}
           >
-            {step === 'loading' && (
-              <Head icon={<Lock size={20} strokeWidth={1.5} />} title="Painel Administrativo" sub="Verificando sessão…" />
-            )}
+            {step === 'loading' && <Head icon={<Lock size={20} strokeWidth={1.5} />} title={LOGIN_TITLE} sub="Verificando sessão…" />}
 
             {step === 'password' && (
               <form onSubmit={signIn}>
-                <Head icon={<Lock size={20} strokeWidth={1.5} />} title="Painel Administrativo" sub="Entre com sua conta da equipe." />
+                <Head icon={<Lock size={20} strokeWidth={1.5} />} title={LOGIN_TITLE} sub="Entre com sua conta da equipe." />
                 {notice && <p className="login-notice">{notice}</p>}
                 <label className="login-field">
                   <span>E-mail</span>

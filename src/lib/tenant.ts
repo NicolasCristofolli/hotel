@@ -28,6 +28,9 @@ export const RESERVED = new Set([
   'contato',
 ]);
 
+/** hotelguia.com.br/painel — the platform's super-admin area (no hotel). */
+export const isPlatformPanel = /^\/painel\/?$/i.test(window.location.pathname);
+
 function resolve(): string | null {
   const [first = ''] = window.location.pathname.split('/').filter(Boolean);
   let seg = '';

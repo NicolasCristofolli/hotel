@@ -11,7 +11,9 @@ import {
   RECOVERY_KEY,
   type AdminRole,
 } from '../lib/adminAuth';
+import { applyPendingAuthLink } from '../lib/authLinks';
 import { supabase } from '../lib/supabase';
+import { isPlatformPanel } from '../lib/tenant';
 
 export type { AdminRole } from '../lib/adminAuth';
 
@@ -30,7 +32,8 @@ type Ctx = {
 };
 const AdminAccessContext = createContext<Ctx | null>(null);
 
-const isAdminHash = () => /^#\/?admin/.test(window.location.hash);
+// The platform panel (/painel) is always an admin screen; in a hotel, it's the #/admin route.
+const isAdminHash = () => isPlatformPanel || /^#\/?admin/.test(window.location.hash);
 
 const lastActivity = () => Number(localStorage.getItem(LAST_ACTIVITY_KEY) || 0);
 const markActivity = () => localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
@@ -66,8 +69,13 @@ export function AdminAccessProvider({ children }: { children: ReactNode }) {
     (async () => {
       const url = new URL(window.location.href);
       const code = url.searchParams.get('code');
-      // "Esqueci minha senha" link → exchange the one-time code, then ask for a new password (after 2FA).
-      if (code && url.searchParams.get('reset') === '1') {
+      // Invite / new-access link from the platform → signed in with it; 2FA setup + new password come next.
+      const link = await applyPendingAuthLink(db);
+      if (link.error) setLinkError(link.error);
+      if (link.applied) {
+        /* signed in by the link — 2FA + new password come next */
+      } else if (code && url.searchParams.get('reset') === '1') {
+        // "Esqueci minha senha" link → exchange the one-time code, then ask for a new password (after 2FA).
         url.searchParams.delete('code');
         url.searchParams.delete('reset');
         history.replaceState(null, '', `${url.pathname}${url.search}#/admin`);
@@ -115,7 +123,8 @@ export function AdminAccessProvider({ children }: { children: ReactNode }) {
     sessionStorage.removeItem(RECOVERY_KEY);
     supabase?.auth.signOut();
     setRole(null);
-    window.location.hash = '/';
+    if (isPlatformPanel) window.location.assign('/');
+    else window.location.hash = '/';
   }, []);
 
   // ── Auto logout after 30 min without activity (shared across admin tabs) ──
@@ -151,19 +160,20 @@ export function AdminAccessProvider({ children }: { children: ReactNode }) {
     setLinkError('');
     setRole(r);
     setPromptOpen(false);
-    window.location.hash = '/admin';
+    if (!isPlatformPanel) window.location.hash = '/admin';
   };
 
   const onCancel = () => {
     setPromptOpen(false);
     setLinkError('');
+    if (isPlatformPanel) return window.location.assign('/');
     if (isAdminHash()) {
       history.replaceState(null, '', '#/');
       setIsAdminRoute(false);
     }
   };
 
-  const canEdit = role === 'owner' || role === 'admin' || role === 'demo';
+  const canEdit = role === 'owner' || role === 'admin' || role === 'demo' || role === 'platform';
 
   return (
     <AdminAccessContext.Provider value={{ unlocked, role, email, canEdit, lock, isAdminRoute, exitAdmin }}>

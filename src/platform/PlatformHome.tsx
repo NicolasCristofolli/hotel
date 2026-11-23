@@ -82,6 +82,14 @@ export function HotelNotFound() {
   );
 }
 
+export function PlatformMessage({ text }: { text: string }) {
+  return (
+    <Screen>
+      <p>{text}</p>
+    </Screen>
+  );
+}
+
 export function HotelLoading() {
   return (
     <main className="platform is-loading" aria-busy="true">

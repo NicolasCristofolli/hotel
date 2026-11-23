@@ -144,6 +144,28 @@ telefone ou quarto). Cliques feitos na pré-visualização do admin não contam.
     3. Só então: Supabase → _Authentication → Attack Protection → Enable Captcha protection_ → Turnstile → cole a Secret Key.
        (Se ativar no Supabase antes do site ter a chave, ninguém consegue entrar.)
 
+### Super admin da plataforma (`hotelguia.com.br/painel`)
+
+Cria hotéis, convida os administradores de cada um, troca papéis, remove acessos e redefine a 2FA de quem perdeu o celular.
+Mostra os acessos de hóspedes dos últimos 30 dias por hotel. O admin da plataforma também entra no painel de qualquer hotel
+(suporte). Tudo é conferido no banco: só funciona com conta da plataforma **e** 2FA verificada.
+
+Instalação (uma vez):
+
+1. **SQL Editor:** rode `supabase/migrations/0006_platform.sql`.
+2. **SQL Editor:** abra `supabase/03_add_platform_admin.sql`, troque o e-mail pelo seu (a conta que você já usa) e rode.
+3. **Edge Function do convite:** Supabase → _Edge Functions_ → _Deploy a new function_ → _Via Editor_ → nome **`invite-admin`** →
+   cole o conteúdo de `supabase/functions/invite-admin/index.ts` → _Deploy_. Depois, em _Details_ da função, **desligue
+   "Verify JWT with legacy secret"** (a função confere o login sozinha).
+4. **Chave secreta da função:** _Project Settings → API Keys_ → copie a **secret key** (`sb_secret_…`) → _Edge Functions →
+   Secrets_ → adicione `PLATFORM_SECRET_KEY` com esse valor. (Ela fica só no servidor do Supabase — nunca no site.)
+5. _(Opcional)_ _Authentication → Providers → Email → Email OTP Expiration_: aumente para `86400` (24 h) para os links de
+   convite durarem um dia em vez de 1 hora.
+
+Como funciona o convite: o painel gera um **link de acesso** e você envia por WhatsApp (o e-mail padrão do Supabase só entrega
+para a equipe do projeto). Quem abre o link cadastra o app autenticador (2FA), cria a senha e cai no painel do hotel. Se o link
+expirar, gere outro no mesmo lugar. Quem já tem conta (ex.: admin de outro hotel) só é vinculado — entra com a senha de sempre.
+
 ### Fluxo de login da equipe
 
 1. E-mail + senha (+ CAPTCHA, se ativo).
@@ -189,6 +211,6 @@ Papéis: **owner** e **admin** editam tudo; **staff** vê só os Relatórios.
 - [x] Multi-hotel: um site para todos os hotéis (`hotelguia.com.br/<id>`)
 - [x] Editor de Experiências com upload de foto
 - [x] Portal dos hóspedes lido do CDN (o banco só é usado quando o admin salva)
-- [ ] Super admin da plataforma (criar hotéis, convidar admins, redefinir 2FA)
+- [x] Super admin da plataforma (criar hotéis, convidar admins, redefinir 2FA)
+- [ ] Relatórios agregados por dia (resumos no banco + limpeza dos eventos antigos)
 - [ ] Vitrine de hotéis parceiros na página inicial
-- [ ] Relatórios agregados no banco (para volumes muito grandes)

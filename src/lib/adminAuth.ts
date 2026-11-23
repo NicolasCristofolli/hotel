@@ -1,6 +1,8 @@
 import { HOTEL_ID, supabase } from './supabase';
+import { isPlatformPanel } from './tenant';
 
-export type AdminRole = 'owner' | 'admin' | 'staff' | 'demo';
+/** `platform`: super admin — the platform panel, plus support access to every hotel's panel. */
+export type AdminRole = 'owner' | 'admin' | 'staff' | 'demo' | 'platform';
 
 /** Set while the admin is finishing a "forgot password" flow (link from e-mail). */
 export const RECOVERY_KEY = 'guia-hospede:recovery';
@@ -10,11 +12,16 @@ export const LOGOUT_REASON_KEY = 'guia-hospede:logout-reason';
 export const LAST_ACTIVITY_KEY = 'guia-hospede:admin-activity';
 export const IDLE_LIMIT_MS = 30 * 60_000;
 
-/** Role of the signed-in user for this hotel, or null if they have no access. */
+/** Role of the signed-in user here (this hotel, or the platform panel), or null if they have no access. */
 export async function fetchRole(): Promise<AdminRole | null> {
   if (!supabase) return null;
-  const { data } = await supabase.from('hotel_admins').select('role').eq('hotel_id', HOTEL_ID).maybeSingle();
-  return (data?.role as AdminRole) ?? null;
+  if (!isPlatformPanel) {
+    const { data } = await supabase.from('hotel_admins').select('role').eq('hotel_id', HOTEL_ID).maybeSingle();
+    if (data?.role) return data.role as AdminRole;
+  }
+  // Platform admins: the platform panel, and support access to any hotel (the database allows it too).
+  const { data: platform } = await supabase.from('platform_admins').select('user_id').maybeSingle();
+  return platform ? 'platform' : null;
 }
 
 export type AuthStep = 'password' | 'mfa-verify' | 'mfa-enroll' | 'new-password' | 'done';
@@ -28,7 +35,11 @@ export async function nextStep(): Promise<{ step: AuthStep; role: AdminRole | nu
   const role = await fetchRole();
   if (!role) {
     await supabase.auth.signOut();
-    return { step: 'password', role: null, error: 'Esta conta não tem acesso a este hotel.' };
+    return {
+      step: 'password',
+      role: null,
+      error: isPlatformPanel ? 'Esta conta não administra a plataforma.' : 'Esta conta não tem acesso a este hotel.',
+    };
   }
   const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
   if (aal?.currentLevel !== 'aal2') {

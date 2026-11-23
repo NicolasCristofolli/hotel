@@ -6,18 +6,34 @@ import { BrandMark } from './components/BrandMark';
 import { IMAGES } from './config/defaultHotelConfig';
 import { GuestApp } from './GuestApp';
 import { AdminAccessProvider, useAdminAccess } from './state/AdminAccess';
-import { hasHotel } from './lib/tenant';
-import { HotelLoading, HotelNotFound, HotelOffline, PlatformHome } from './platform/PlatformHome';
+import { supabase } from './lib/supabase';
+import { hasHotel, isPlatformPanel } from './lib/tenant';
+import { PlatformPanel } from './platform/PlatformPanel';
+import { HotelLoading, HotelNotFound, HotelOffline, PlatformHome, PlatformMessage } from './platform/PlatformHome';
 import { HotelProvider, useHotel } from './state/HotelContext';
 
 export default function App() {
-  // hotelguia.com.br/ → platform; hotelguia.com.br/<hotel> → that hotel's portal (#/admin for its panel).
+  // hotelguia.com.br/ → platform; /painel → super admin; /<hotel> → that hotel's portal (#/admin for its panel).
+  if (isPlatformPanel)
+    return (
+      <AdminAccessProvider>
+        <PlatformGate />
+      </AdminAccessProvider>
+    );
   if (!hasHotel) return <PlatformHome />;
   return (
     <HotelProvider>
       <HotelGate />
     </HotelProvider>
   );
+}
+
+/** Super admin: the login modal (from AdminAccessProvider) sits on top until a platform admin is signed in. */
+function PlatformGate() {
+  const { role } = useAdminAccess();
+  if (!supabase) return <PlatformMessage text="O painel da plataforma precisa do Supabase configurado (.env.local)." />;
+  if (role === 'platform') return <PlatformPanel />;
+  return <HotelLoading />;
 }
 
 /** Only mounts the portal/admin once this hotel's own content is known. */
