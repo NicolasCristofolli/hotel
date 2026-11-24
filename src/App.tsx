@@ -6,7 +6,7 @@ import { BrandMark } from './components/BrandMark';
 import { IMAGES } from './config/defaultHotelConfig';
 import { GuestApp } from './GuestApp';
 import { AdminAccessProvider, useAdminAccess } from './state/AdminAccess';
-import { supabase } from './lib/supabase';
+import { isRemote } from './lib/backend';
 import { hasHotel, isPlatformPanel } from './lib/tenant';
 import { HotelLoading, HotelNotFound, HotelOffline, PlatformHome, PlatformMessage } from './platform/PlatformHome';
 import { HotelProvider, useHotel } from './state/HotelContext';
@@ -34,7 +34,7 @@ export default function App() {
 /** Super admin: the login modal (from AdminAccessProvider) sits on top until a platform admin is signed in. */
 function PlatformGate() {
   const { role } = useAdminAccess();
-  if (!supabase) return <PlatformMessage text="O painel da plataforma precisa do Supabase configurado (.env.local)." />;
+  if (!isRemote) return <PlatformMessage text="O painel da plataforma precisa do Supabase configurado (.env.local)." />;
   if (role === 'platform')
     return (
       <Suspense fallback={<HotelLoading />}>

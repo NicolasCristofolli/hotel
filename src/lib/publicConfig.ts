@@ -1,4 +1,4 @@
-import { HOTEL_ID, supabase } from './supabase';
+import { HOTEL_ID, isRemote, loadSupabase, storagePublicUrl } from './backend';
 
 /**
  * Published snapshot of the hotel config, served by the Storage CDN.
@@ -11,10 +11,11 @@ const BUCKET = 'hotel-assets';
 const PATH = `${HOTEL_ID}/config.json`;
 const CDN_MAX_AGE = 60;
 
-export const publicConfigUrl = supabase ? supabase.storage.from(BUCKET).getPublicUrl(PATH).data.publicUrl : '';
+export const publicConfigUrl = isRemote ? storagePublicUrl(BUCKET, PATH) : '';
 
 /** Admin side: overwrite the snapshot after a successful database save. */
 export async function publishConfig(config: unknown) {
+  const supabase = await loadSupabase();
   if (!supabase) return;
   const body = new Blob([JSON.stringify(config)], { type: 'application/json' });
   const { error } = await supabase.storage

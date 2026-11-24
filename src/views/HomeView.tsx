@@ -4,7 +4,7 @@ import { useMemo, useRef, useState } from 'react';
 import { Img } from '../components/Img';
 import { BrandMark } from '../components/BrandMark';
 import { Icon } from '../lib/icons';
-import { useRunQuickAction } from '../lib/quickActions';
+import { MAX_QUICK_ACTIONS, useRunQuickAction } from '../lib/quickActions';
 import { useTrack } from '../lib/analytics';
 import { fmtTime } from '../lib/status';
 import { useGuest } from '../state/GuestContext';
@@ -33,7 +33,7 @@ export function HomeView() {
   const { config } = useHotel();
   const run = useRunQuickAction();
   const id = config.identity;
-  const actions = config.quickActions.filter((a) => a.active);
+  const actions = config.quickActions.filter((a) => a.active).slice(0, MAX_QUICK_ACTIONS);
 
   return (
     <div className="home">
@@ -68,7 +68,7 @@ export function HomeView() {
 
       <section className="section">
         <div className="section-head">
-          <p className="eyebrow">Concierge digital</p>
+          <p className="eyebrow">Seja bem-vindo</p>
           <h2 className="section-title">
             Sua estadia, <em>em um toque</em>
           </h2>

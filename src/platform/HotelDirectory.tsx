@@ -1,6 +1,6 @@
 import { MapPin, Search, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { isRemote, rest } from '../lib/backend';
 
 /** A hotel on the public showcase (`public_hotels()` — migrations/0009). */
 type ListedHotel = { id: string; name: string; city: string; region: string; image: string; logo: string; monogram: string; color: string };
@@ -28,19 +28,26 @@ export function HotelDirectory() {
   const [query, setQuery] = useState('');
 
   useEffect(() => {
-    if (!supabase) return setHotels([]);
+    if (!isRemote) return setHotels([]);
     let alive = true;
-    supabase.rpc('public_hotels').then(({ data, error }) => {
-      if (!alive) return;
-      if (error) return setFailed(true);
-      const list = ((data as ListedHotel[]) ?? []).filter((h) => SLUG.test(h.id));
-      setHotels(list);
-      try {
-        localStorage.setItem(CACHE_KEY, JSON.stringify(list));
-      } catch {
-        /* private mode — ignore */
-      }
-    });
+    const load = async () => {
+      const res = await rest('rpc/public_hotels', { method: 'POST', body: '{}' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return (await res.json()) as unknown;
+    };
+    load().then(
+      (data) => {
+        if (!alive) return;
+        const list = (Array.isArray(data) ? (data as ListedHotel[]) : []).filter((h) => SLUG.test(h.id));
+        setHotels(list);
+        try {
+          localStorage.setItem(CACHE_KEY, JSON.stringify(list));
+        } catch {
+          /* private mode — ignore */
+        }
+      },
+      () => alive && setFailed(true),
+    );
     return () => {
       alive = false;
     };

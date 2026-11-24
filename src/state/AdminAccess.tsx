@@ -11,7 +11,7 @@ import {
   type AdminRole,
 } from '../lib/adminAuth';
 import { applyPendingAuthLink } from '../lib/authLinks';
-import { supabase } from '../lib/supabase';
+import { hasStoredSession, isRemote, loadSupabase } from '../lib/backend';
 import { isPlatformPanel } from '../lib/tenant';
 
 export type { AdminRole } from '../lib/adminAuth';
@@ -37,13 +37,27 @@ const AdminAccessContext = createContext<Ctx | null>(null);
 // The platform panel (/painel) is always an admin screen; in a hotel, it's the #/admin route.
 const isAdminHash = () => isPlatformPanel || /^#\/?admin/.test(window.location.hash);
 
+/** "Esqueci minha senha" e-mail link (?code=…&reset=1). */
+const isResetLink = () => {
+  const p = new URLSearchParams(window.location.search);
+  return p.has('code') && p.get('reset') === '1';
+};
+/**
+ * Guests never need auth: the Supabase client (and its download) is only loaded on the admin route,
+ * on a reset link, or when an admin session was left in this browser. Invite links already moved
+ * the URL to #/admin (authLinks.ts).
+ */
+const needsAuthNow = () => isRemote && (isAdminHash() || isResetLink() || hasStoredSession());
+
 const lastActivity = () => Number(localStorage.getItem(LAST_ACTIVITY_KEY) || 0);
 const markActivity = () => localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
 
 export function AdminAccessProvider({ children }: { children: ReactNode }) {
-  const [role, setRole] = useState<AdminRole | null>(() => (!supabase && sessionStorage.getItem(SESSION_KEY) === '1' ? 'demo' : null));
+  const [role, setRole] = useState<AdminRole | null>(() => (!isRemote && sessionStorage.getItem(SESSION_KEY) === '1' ? 'demo' : null));
   const [email, setEmail] = useState<string | null>(null);
-  const [checking, setChecking] = useState(!!supabase);
+  const [authNeeded, setAuthNeeded] = useState(needsAuthNow);
+  const [checking, setChecking] = useState(authNeeded);
+  const authLoaded = useRef(authNeeded);
   const [isAdminRoute, setIsAdminRoute] = useState(isAdminHash);
   const [promptOpen, setPromptOpen] = useState(false);
   const [linkError, setLinkError] = useState('');
@@ -55,65 +69,83 @@ export function AdminAccessProvider({ children }: { children: ReactNode }) {
   }, [promptOpen]);
 
   useEffect(() => {
-    const onHash = () => setIsAdminRoute(isAdminHash());
+    const onHash = () => {
+      const admin = isAdminHash();
+      setIsAdminRoute(admin);
+      // First visit to #/admin in this page → load auth now (same render, so the login waits for the check).
+      if (admin && isRemote && !authLoaded.current) {
+        authLoaded.current = true;
+        setAuthNeeded(true);
+        setChecking(true);
+      }
+    };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
   // Supabase session → role (only once password + 2FA are done)
   useEffect(() => {
-    if (!supabase) return;
-    const db = supabase;
+    if (!authNeeded) return;
     let alive = true;
-    const resolve = async () => {
-      const { data } = await db.auth.getSession();
-      if (!alive) return;
-      setEmail(data.session?.user.email ?? null);
-      setRole(data.session ? await isFullyAuthenticated() : null);
-      setChecking(false);
+    let unsubscribe = () => {};
+    const start = async () => {
+      const db = await loadSupabase();
+      if (!db || !alive) return;
+      run(db);
     };
-
-    (async () => {
-      const url = new URL(window.location.href);
-      const code = url.searchParams.get('code');
-      // Invite / new-access link from the platform → signed in with it; 2FA setup + new password come next.
-      const link = await applyPendingAuthLink(db);
-      if (link.error) setLinkError(link.error);
-      if (link.applied) {
-        /* signed in by the link — 2FA + new password come next */
-      } else if (code && url.searchParams.get('reset') === '1') {
-        // "Esqueci minha senha" link → exchange the one-time code, then ask for a new password (after 2FA).
-        url.searchParams.delete('code');
-        url.searchParams.delete('reset');
-        history.replaceState(null, '', `${url.pathname}${url.search}#/admin`);
-        setIsAdminRoute(true);
-        const { error } = await db.auth.exchangeCodeForSession(code);
-        if (error) setLinkError(authMessage(error));
-        else {
-          sessionStorage.setItem(RECOVERY_KEY, '1');
-          markActivity();
-        }
-      } else {
-        // Session left open in a closed tab for too long → end it.
+    const run = (db: NonNullable<Awaited<ReturnType<typeof loadSupabase>>>) => {
+      const resolve = async () => {
         const { data } = await db.auth.getSession();
-        if (data.session && Date.now() - lastActivity() > IDLE_LIMIT_MS) {
-          sessionStorage.setItem(LOGOUT_REASON_KEY, 'idle');
-          await db.auth.signOut();
-        }
-      }
-      await resolve();
-    })();
+        if (!alive) return;
+        setEmail(data.session?.user.email ?? null);
+        setRole(data.session ? await isFullyAuthenticated() : null);
+        setChecking(false);
+      };
 
-    const { data: sub } = db.auth.onAuthStateChange((event) => {
-      if (event === 'INITIAL_SESSION') return;
-      // Never await Supabase calls inside this callback (it can deadlock the auth lock).
-      setTimeout(resolve, 0);
-    });
+      (async () => {
+        const url = new URL(window.location.href);
+        const code = url.searchParams.get('code');
+        // Invite / new-access link from the platform → signed in with it; 2FA setup + new password come next.
+        const link = await applyPendingAuthLink(db);
+        if (link.error) setLinkError(link.error);
+        if (link.applied) {
+          /* signed in by the link — 2FA + new password come next */
+        } else if (code && url.searchParams.get('reset') === '1') {
+          // "Esqueci minha senha" link → exchange the one-time code, then ask for a new password (after 2FA).
+          url.searchParams.delete('code');
+          url.searchParams.delete('reset');
+          history.replaceState(null, '', `${url.pathname}${url.search}#/admin`);
+          setIsAdminRoute(true);
+          const { error } = await db.auth.exchangeCodeForSession(code);
+          if (error) setLinkError(authMessage(error));
+          else {
+            sessionStorage.setItem(RECOVERY_KEY, '1');
+            markActivity();
+          }
+        } else {
+          // Session left open in a closed tab for too long → end it.
+          const { data } = await db.auth.getSession();
+          if (data.session && Date.now() - lastActivity() > IDLE_LIMIT_MS) {
+            sessionStorage.setItem(LOGOUT_REASON_KEY, 'idle');
+            await db.auth.signOut();
+          }
+        }
+        await resolve();
+      })();
+
+      const { data: sub } = db.auth.onAuthStateChange((event) => {
+        if (event === 'INITIAL_SESSION') return;
+        // Never await Supabase calls inside this callback (it can deadlock the auth lock).
+        setTimeout(resolve, 0);
+      });
+      unsubscribe = () => sub.subscription.unsubscribe();
+    };
+    start().catch(() => alive && setChecking(false)); // client failed to download → the login shows the error on retry
     return () => {
       alive = false;
-      sub.subscription.unsubscribe();
+      unsubscribe();
     };
-  }, []);
+  }, [authNeeded]);
 
   // Direct visit to #/admin while locked → ask for credentials; leaving the route closes it.
   useEffect(() => {
@@ -128,7 +160,7 @@ export function AdminAccessProvider({ children }: { children: ReactNode }) {
   const lock = useCallback(() => {
     sessionStorage.removeItem(SESSION_KEY);
     sessionStorage.removeItem(RECOVERY_KEY);
-    supabase?.auth.signOut();
+    loadSupabase().then((db) => db?.auth.signOut());
     setRole(null);
     if (isPlatformPanel) window.location.assign('/');
     else window.location.hash = '/';
@@ -137,7 +169,7 @@ export function AdminAccessProvider({ children }: { children: ReactNode }) {
   // ── Auto logout after 30 min without activity (shared across admin tabs) ──
   const lastWrite = useRef(0);
   useEffect(() => {
-    if (!supabase || !unlocked) return;
+    if (!isRemote || !unlocked) return;
     markActivity();
     const onActivity = () => {
       const now = Date.now();
@@ -151,7 +183,7 @@ export function AdminAccessProvider({ children }: { children: ReactNode }) {
     const timer = setInterval(() => {
       if (Date.now() - lastActivity() > IDLE_LIMIT_MS) {
         sessionStorage.setItem(LOGOUT_REASON_KEY, 'idle');
-        supabase?.auth.signOut();
+        loadSupabase().then((db) => db?.auth.signOut());
         setRole(null); // stays on #/admin → the login opens with the reason
       }
     }, 20_000);
@@ -185,7 +217,7 @@ export function AdminAccessProvider({ children }: { children: ReactNode }) {
   return (
     <AdminAccessContext.Provider value={{ unlocked, role, email, canEdit, lock, isAdminRoute, exitAdmin }}>
       {children}
-      {supabase ? (
+      {isRemote ? (
         (promptOpen || loginUsed) && (
           <Suspense fallback={null}>
             <AdminLogin open={promptOpen} initialError={linkError} onSuccess={onSuccess} onCancel={onCancel} />

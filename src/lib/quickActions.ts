@@ -6,6 +6,9 @@ import type { QuickAction } from '../types';
 import { safeExternalUrl } from './safeUrl';
 
 /** Destinations offered in the admin when a shortcut points to a portal page. */
+/** Max shortcuts on the guest home grid (keeps it a clean 2×4). */
+export const MAX_QUICK_ACTIONS = 8;
+
 export const ROUTE_OPTIONS: { value: string; label: string }[] = [
   { value: 'servicos', label: 'Horários & Serviços' },
   { value: 'servicos?c=gastronomia', label: 'Serviços • Gastronomia' },

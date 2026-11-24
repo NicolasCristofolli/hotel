@@ -3,7 +3,8 @@ import { defaultHotelConfig } from '../config/defaultHotelConfig';
 import { starterConfig } from '../config/starterConfig';
 import { mergeConfig } from '../lib/mergeConfig';
 import { fetchPublicConfig, publishConfig } from '../lib/publicConfig';
-import { HOTEL_ID, isRemote, supabase } from '../lib/supabase';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { HOTEL_ID, isRemote, loadSupabase, rest, restError } from '../lib/backend';
 import { hotelKey } from '../lib/tenant';
 import type { HotelConfig } from '../types';
 
@@ -66,10 +67,17 @@ const loadCache = () => readCache() ?? defaultHotelConfig;
 // config_rev (0008) goes up on every content change; a save only goes through if nobody saved in between.
 // Visitors may only read these columns of `hotels` (0009).
 type HotelRow = { name: string; config: unknown; config_rev?: number };
-const fetchRow = async (db: NonNullable<typeof supabase>) => {
+const fetchRow = async (db: SupabaseClient) => {
   const { data, error } = await db.from('hotels').select('name, config, config_rev').eq('id', HOTEL_ID).maybeSingle();
   if (error) throw new Error(error.message);
   return data as HotelRow | null;
+};
+/** Same, anonymously over plain REST (guests — no supabase-js download). */
+const fetchRowPublic = async () => {
+  const res = await rest(`hotels?select=name,config,config_rev&id=eq.${encodeURIComponent(HOTEL_ID)}`);
+  if (!res.ok) throw new Error(await restError(res));
+  const rows = (await res.json()) as HotelRow[];
+  return rows[0] ?? null;
 };
 
 export function HotelProvider({ children }: { children: ReactNode }) {
@@ -115,8 +123,7 @@ export function HotelProvider({ children }: { children: ReactNode }) {
   // Guests: published snapshot on the Storage CDN — no database query, no realtime connection.
   // Revalidated when the guest comes back to the tab and every few minutes while it's visible.
   useEffect(() => {
-    if (!supabase || isAdmin) return;
-    const db = supabase;
+    if (!isRemote || isAdmin) return;
     let alive = true;
     let lastCheck = 0;
 
@@ -130,7 +137,7 @@ export function HotelProvider({ children }: { children: ReactNode }) {
           if (alive) applyRemote(raw);
         } else {
           // Not published yet (hotel never saved, or URL of a hotel that doesn't exist) → ask the database once.
-          const row = await fetchRow(db);
+          const row = await fetchRowPublic();
           if (!alive) return;
           if (!row) return setPresence('missing');
           applyRemote(row.config, row.name);
@@ -159,43 +166,47 @@ export function HotelProvider({ children }: { children: ReactNode }) {
 
   // Admin: database (source of truth) + realtime, so two admins editing at once see each other's changes.
   useEffect(() => {
-    if (!supabase || !isAdmin) return;
-    const db = supabase;
+    if (!isRemote || !isAdmin) return;
     let alive = true;
+    let off = () => {};
     setSync({ status: 'loading' });
 
-    fetchRow(db).then(
-      (row) => {
+    const fail = (e: Error) => {
+      if (!alive) return;
+      setSync({ status: 'error', message: `Não foi possível carregar do banco: ${e.message}` });
+      setPresence((p) => (p === 'loading' ? 'offline' : p));
+    };
+
+    // The full client (auth + realtime) is only downloaded here, for the admin panel.
+    loadSupabase().then((db) => {
+      if (!db || !alive) return;
+      fetchRow(db).then((row) => {
         if (!alive) return;
         if (!row) return setPresence('missing');
         applyRemote(row.config, row.name, row.config_rev ?? -1);
         setSync({ status: 'synced' });
-      },
-      (e: Error) => {
-        if (!alive) return;
-        setSync({ status: 'error', message: `Não foi possível carregar do banco: ${e.message}` });
-        setPresence((p) => (p === 'loading' ? 'offline' : p));
-      },
-    );
+      }, fail);
 
-    const channel = db
-      .channel(`hotel:${HOTEL_ID}`)
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'hotels', filter: `id=eq.${HOTEL_ID}` }, (payload) => {
-        // Ignore echoes while this browser is editing, so typing isn't overwritten by an older save.
-        const row = payload.new as HotelRow;
-        applyRemote(row.config, row.name, row.config_rev ?? -1);
-      })
-      .subscribe();
+      const channel = db
+        .channel(`hotel:${HOTEL_ID}`)
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'hotels', filter: `id=eq.${HOTEL_ID}` }, (payload) => {
+          // Ignore echoes while this browser is editing, so typing isn't overwritten by an older save.
+          const row = payload.new as HotelRow;
+          applyRemote(row.config, row.name, row.config_rev ?? -1);
+        })
+        .subscribe();
+      off = () => db.removeChannel(channel);
+    }, fail);
 
     return () => {
       alive = false;
-      db.removeChannel(channel);
+      off();
     };
   }, [isAdmin, applyRemote]);
 
   const save = useCallback(async () => {
-    if (!supabase) return;
-    const db = supabase;
+    const db = await loadSupabase();
+    if (!db) return;
     setSync({ status: 'saving' });
     let merged = false;
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -232,7 +243,7 @@ export function HotelProvider({ children }: { children: ReactNode }) {
 
   const scheduleSave = useCallback(() => {
     lastLocalEdit.current = Date.now();
-    if (!supabase) return;
+    if (!isRemote) return;
     setSync({ status: 'saving' });
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(save, SAVE_DELAY);

@@ -5,9 +5,8 @@
  * Storage goes through `AnalyticsStore`, so moving from this browser (localStorage)
  * to a shared database (Supabase) only means swapping `store` — screens stay the same.
  */
-import type { SupabaseClient } from '@supabase/supabase-js';
 import { useCallback } from 'react';
-import { HOTEL_ID, supabase } from './supabase';
+import { HOTEL_ID, isRemote, loadSupabase, rest } from './backend';
 import { useGuest } from '../state/GuestContext';
 import { hotelKey } from './tenant';
 
@@ -90,12 +89,15 @@ class LocalStore implements AnalyticsStore {
   }
 }
 
-/** Shared database: guests only insert (batched); admins read via RLS. */
+/**
+ * Shared database: guests only insert (batched, plain REST — no supabase-js in the guest bundle);
+ * admins read via RLS with the full client, loaded on demand.
+ */
 class SupabaseStore implements AnalyticsStore {
   readonly local = false;
   private queue: AnalyticsEvent[] = [];
   private timer: ReturnType<typeof setTimeout> | undefined;
-  constructor(private db: SupabaseClient) {
+  constructor() {
     const flushNow = () => this.flush();
     window.addEventListener('pagehide', flushNow);
     document.addEventListener('visibilitychange', () => document.visibilityState === 'hidden' && flushNow());
@@ -119,14 +121,29 @@ class SupabaseStore implements AnalyticsStore {
       label: e.label.slice(0, 120),
       sid: e.sid.slice(0, 40),
     }));
-    const { error } = await this.db.from('analytics_events').insert(rows);
-    if (error && this.queue.length < 500) this.queue.unshift(...batch); // retry on the next flush
+    const body = JSON.stringify(rows);
+    let ok = false;
+    try {
+      // keepalive: the request survives the tab closing (flush on pagehide). Browsers cap it at 64 KB.
+      const res = await rest('analytics_events', {
+        method: 'POST',
+        body,
+        headers: { Prefer: 'return=minimal' },
+        keepalive: body.length < 60_000,
+      });
+      ok = res.ok;
+    } catch {
+      /* offline — retried below */
+    }
+    if (!ok && this.queue.length < 500) this.queue.unshift(...batch); // retry on the next flush
   }
   async query(fromTs: number) {
+    const db = await loadSupabase();
+    if (!db) return [];
     const out: AnalyticsEvent[] = [];
     const PAGE = 1000;
     for (let i = 0; i < 100; i++) {
-      const { data, error } = await this.db
+      const { data, error } = await db
         .from('analytics_events')
         .select('type,target,label,sid,ts')
         .eq('hotel_id', HOTEL_ID)
@@ -140,9 +157,11 @@ class SupabaseStore implements AnalyticsStore {
     return out;
   }
   async clear() {
+    const db = await loadSupabase();
+    if (!db) return;
     // Individual clicks and the summaries the reports are computed from.
     for (const table of ['analytics_events', 'analytics_daily', 'analytics_hourly']) {
-      const { error } = await this.db.from(table).delete().eq('hotel_id', HOTEL_ID);
+      const { error } = await db.from(table).delete().eq('hotel_id', HOTEL_ID);
       if (error) throw new Error(error.message);
     }
   }
@@ -151,22 +170,29 @@ class SupabaseStore implements AnalyticsStore {
     const throttled = () => {
       if (!t) t = setTimeout(() => ((t = undefined), cb()), 5000);
     };
-    const ch = this.db
-      .channel(`analytics:${HOTEL_ID}`)
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'analytics_events', filter: `hotel_id=eq.${HOTEL_ID}` },
-        throttled,
-      )
-      .subscribe();
+    let alive = true;
+    let off = () => {};
+    loadSupabase().then((db) => {
+      if (!db || !alive) return;
+      const ch = db
+        .channel(`analytics:${HOTEL_ID}`)
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'analytics_events', filter: `hotel_id=eq.${HOTEL_ID}` },
+          throttled,
+        )
+        .subscribe();
+      off = () => db.removeChannel(ch);
+    });
     return () => {
+      alive = false;
       clearTimeout(t);
-      this.db.removeChannel(ch);
+      off();
     };
   }
 }
 
-export const store: AnalyticsStore = supabase ? new SupabaseStore(supabase) : new LocalStore();
+export const store: AnalyticsStore = isRemote ? new SupabaseStore() : new LocalStore();
 
 // ── Recording ────────────────────────────────────────────
 const SID_KEY = hotelKey('guia-hospede:sid');

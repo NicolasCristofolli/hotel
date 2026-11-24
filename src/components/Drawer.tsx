@@ -2,7 +2,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { ChevronRight, Home, MessageCircle, X } from 'lucide-react';
 import { useEffect } from 'react';
 import { Icon } from '../lib/icons';
-import { useRunQuickAction } from '../lib/quickActions';
+import { MAX_QUICK_ACTIONS, useRunQuickAction } from '../lib/quickActions';
 import { BrandMark } from './BrandMark';
 import { useGuest } from '../state/GuestContext';
 import { useHotel } from '../state/HotelContext';
@@ -67,6 +67,7 @@ export function Drawer() {
                 </motion.li>
                 {config.quickActions
                   .filter((a) => a.active)
+                  .slice(0, MAX_QUICK_ACTIONS)
                   .map((a, i) => {
                     const active = a.kind === 'route' && !a.target.includes('?') && route.path.split('?')[0] === a.target;
                     return (

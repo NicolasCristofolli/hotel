@@ -2,7 +2,7 @@ import { safeExternalUrl } from '../../lib/safeUrl';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
 import { Icon, ICON_NAMES } from '../../lib/icons';
-import { ROUTE_OPTIONS } from '../../lib/quickActions';
+import { MAX_QUICK_ACTIONS, ROUTE_OPTIONS } from '../../lib/quickActions';
 import { uid } from '../../lib/status';
 import { useHotel } from '../../state/HotelContext';
 import { useToast } from '../../state/ToastContext';
@@ -42,7 +42,12 @@ function ShortcutsCard() {
       [next[i], next[j]] = [next[j], next[i]];
       return next;
     });
+  const atLimit = actions.length >= MAX_QUICK_ACTIONS;
   const add = () => {
+    if (atLimit) {
+      toast('Limite atingido', `Máximo de ${MAX_QUICK_ACTIONS} atalhos — exclua um para criar outro`);
+      return;
+    }
     save((l) => [
       ...l,
       { id: uid(), label: 'Novo atalho', hint: 'Descrição curta', icon: 'Star', kind: 'route', target: 'servicos', active: true },
@@ -68,9 +73,14 @@ function ShortcutsCard() {
   return (
     <Card
       title="Atalhos do painel inicial"
-      desc={`${activeCount} de ${actions.length} visíveis • exibidos em “Sua estadia, em um toque” e no menu lateral, na ordem abaixo.`}
+      desc={`${activeCount} de ${actions.length} visíveis • máximo de ${MAX_QUICK_ACTIONS} atalhos • exibidos em “Sua estadia, em um toque” e no menu lateral, na ordem abaixo.`}
       actions={
-        <button className="a-btn a-btn-primary" onClick={add}>
+        <button
+          className="a-btn a-btn-primary"
+          onClick={add}
+          disabled={atLimit}
+          title={atLimit ? `Limite de ${MAX_QUICK_ACTIONS} atalhos atingido` : undefined}
+        >
           <Plus size={16} /> Novo atalho
         </button>
       }

@@ -1,4 +1,4 @@
-import { HOTEL_ID, supabase } from './supabase';
+import { HOTEL_ID, loadSupabase } from './backend';
 import { isPlatformPanel } from './tenant';
 
 /** `platform`: super admin — the platform panel, plus support access to every hotel's panel. */
@@ -14,6 +14,7 @@ export const IDLE_LIMIT_MS = 30 * 60_000;
 
 /** Role of the signed-in user here (this hotel, or the platform panel), or null if they have no access. */
 export async function fetchRole(): Promise<AdminRole | null> {
+  const supabase = await loadSupabase();
   if (!supabase) return null;
   if (!isPlatformPanel) {
     const { data } = await supabase.from('hotel_admins').select('role').eq('hotel_id', HOTEL_ID).maybeSingle();
@@ -28,6 +29,7 @@ export type AuthStep = 'password' | 'mfa-verify' | 'mfa-enroll' | 'new-password'
 
 /** Where the current session stands in: password → 2FA (enroll or verify) → [new password] → done. */
 export async function nextStep(): Promise<{ step: AuthStep; role: AdminRole | null; error?: string }> {
+  const supabase = await loadSupabase();
   if (!supabase) return { step: 'password', role: null };
   const { data: s } = await supabase.auth.getSession();
   if (!s.session) return { step: 'password', role: null };
