@@ -31,7 +31,15 @@ export function hasStoredSession() {
 let client: Promise<SupabaseClient | null> | null = null;
 /** The full Supabase client, downloaded on first use (admin screens only). */
 export function loadSupabase(): Promise<SupabaseClient | null> {
-  client ??= isRemote ? import('./supabase').then((m) => m.supabase) : Promise.resolve(null);
+  client ??= isRemote
+    ? import('./supabase').then(
+        (m) => m.supabase,
+        (e) => {
+          client = null; // download failed (bad connection) → the next call tries again
+          throw e;
+        },
+      )
+    : Promise.resolve(null);
   return client;
 }
 

@@ -98,7 +98,7 @@ class SupabaseStore implements AnalyticsStore {
   private queue: AnalyticsEvent[] = [];
   private timer: ReturnType<typeof setTimeout> | undefined;
   constructor() {
-    const flushNow = () => this.flush();
+    const flushNow = () => this.flush(true);
     window.addEventListener('pagehide', flushNow);
     document.addEventListener('visibilitychange', () => document.visibilityState === 'hidden' && flushNow());
   }
@@ -110,7 +110,8 @@ class SupabaseStore implements AnalyticsStore {
     clearTimeout(this.timer);
     this.timer = setTimeout(() => this.flush(), 2000);
   }
-  private async flush() {
+  /** `leaving`: the tab is closing/hidden — the request must outlive the page. */
+  private async flush(leaving = false) {
     if (!this.queue.length) return;
     const batch = this.queue.splice(0, this.queue.length);
     // `ts` is set by the database (server time) — clients can't backdate events.
@@ -122,16 +123,14 @@ class SupabaseStore implements AnalyticsStore {
       sid: e.sid.slice(0, 40),
     }));
     const body = JSON.stringify(rows);
+    const post = (keepalive: boolean) =>
+      rest('analytics_events', { method: 'POST', body, headers: { Prefer: 'return=minimal' }, keepalive }).then((r) => r.ok);
     let ok = false;
     try {
-      // keepalive: the request survives the tab closing (flush on pagehide). Browsers cap it at 64 KB.
-      const res = await rest('analytics_events', {
-        method: 'POST',
-        body,
-        headers: { Prefer: 'return=minimal' },
-        keepalive: body.length < 60_000,
-      });
-      ok = res.ok;
+      // keepalive only when leaving: it lets the request outlive the page (browsers cap it at 64 KB), but some
+      // browsers reject keepalive on cross-origin requests that need a CORS preflight — then send it normally.
+      const keepalive = leaving && body.length < 60_000;
+      ok = await post(keepalive).catch((e) => (keepalive ? post(false) : Promise.reject(e)));
     } catch {
       /* offline — retried below */
     }
