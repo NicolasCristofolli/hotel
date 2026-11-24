@@ -64,10 +64,10 @@ function readCache(): HotelConfig | null {
 const loadCache = () => readCache() ?? defaultHotelConfig;
 
 // config_rev (0008) goes up on every content change; a save only goes through if nobody saved in between.
-// select('*') keeps working on a database that doesn't have that column yet (saves then skip the check).
+// Visitors may only read these columns of `hotels` (0009).
 type HotelRow = { name: string; config: unknown; config_rev?: number };
 const fetchRow = async (db: NonNullable<typeof supabase>) => {
-  const { data, error } = await db.from('hotels').select('*').eq('id', HOTEL_ID).maybeSingle();
+  const { data, error } = await db.from('hotels').select('name, config, config_rev').eq('id', HOTEL_ID).maybeSingle();
   if (error) throw new Error(error.message);
   return data as HotelRow | null;
 };
@@ -124,7 +124,9 @@ export function HotelProvider({ children }: { children: ReactNode }) {
       lastCheck = Date.now();
       try {
         const raw = await fetchPublicConfig();
-        if (raw !== null) {
+        // A snapshot this version can't read (older format / damaged) counts as missing — never fall back
+        // to the demo hotel's content for a real hotel.
+        if (raw !== null && normalize(raw as Partial<HotelConfig>)) {
           if (alive) applyRemote(raw);
         } else {
           // Not published yet (hotel never saved, or URL of a hotel that doesn't exist) → ask the database once.
@@ -201,7 +203,7 @@ export function HotelProvider({ children }: { children: ReactNode }) {
       const mine = latest.current;
       let q = db.from('hotels').update({ config: mine }).eq('id', HOTEL_ID);
       if (rev >= 0) q = q.eq('config_rev', rev);
-      const { data, error } = await q.select('*');
+      const { data, error } = await q.select('name, config_rev');
       if (error) return setSync({ status: 'error', message: `Erro ao salvar: ${error.message}` });
       const saved = (data as HotelRow[] | null)?.[0];
       if (saved) {

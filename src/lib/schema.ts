@@ -5,8 +5,8 @@ import { supabase } from './supabase';
  * Database migration this version of the site expects (supabase/migrations/00NN_*.sql).
  * Each new migration bumps `app_schema_version()` in SQL and this number together.
  */
-export const EXPECTED_SCHEMA = 8;
-export const MIGRATION_FILE = 'supabase/migrations/0008_versions_and_limits.sql';
+export const EXPECTED_SCHEMA = 9;
+export const MIGRATION_FILE = 'supabase/migrations/0009_directory_and_hardening.sql';
 
 let cached: Promise<number> | null = null;
 

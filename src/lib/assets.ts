@@ -51,25 +51,28 @@ const toBlob = (c: HTMLCanvasElement, type: string, quality?: number) =>
 export async function compressImage(file: File, preset: ImagePreset): Promise<Blob> {
   const spec = IMAGE_PRESETS[preset];
 
-  if (file.type === 'image/svg+xml') {
+  // SVG logos are converted to PNG/WebP: an SVG file can carry scripts, so the bucket doesn't accept it.
+  const isSvg = file.type === 'image/svg+xml';
+  if (isSvg) {
     if (preset !== 'logo') throw new Error('SVG é aceito apenas para a logo.');
     if (file.size > MAX_SVG_BYTES) throw new Error(`SVG muito grande (máx. ${formatBytes(MAX_SVG_BYTES)}).`);
-    return file;
-  }
-  if (!ACCEPTED_TYPES.includes(file.type)) throw new Error('Formato não suportado. Use PNG, JPG ou WebP.');
+  } else if (!ACCEPTED_TYPES.includes(file.type)) throw new Error('Formato não suportado. Use PNG, JPG ou WebP.');
   if (file.size > MAX_INPUT_BYTES)
     throw new Error(`Arquivo muito grande (${formatBytes(file.size)}). O máximo é ${formatBytes(MAX_INPUT_BYTES)}.`);
 
   const img = await loadImage(file);
-  let side = Math.min(spec.maxSide, Math.max(img.naturalWidth, img.naturalHeight));
+  // SVGs without width/height report 0 — treat them as square; vectors are drawn at the preset's full size.
+  const w = img.naturalWidth || spec.maxSide;
+  const h = img.naturalHeight || spec.maxSide;
+  let side = isSvg ? spec.maxSide : Math.min(spec.maxSide, Math.max(w, h));
   let best: Blob | null = null;
 
   // Shrink quality first, then dimensions, until the file fits the budget.
   for (let round = 0; round < 6; round++) {
-    const scale = side / Math.max(img.naturalWidth, img.naturalHeight);
+    const scale = side / Math.max(w, h);
     const c = document.createElement('canvas');
-    c.width = Math.max(1, Math.round(img.naturalWidth * scale));
-    c.height = Math.max(1, Math.round(img.naturalHeight * scale));
+    c.width = Math.max(1, Math.round(w * scale));
+    c.height = Math.max(1, Math.round(h * scale));
     const ctx = c.getContext('2d')!;
     if (!spec.transparent) {
       ctx.fillStyle = '#fff'; // JPEG has no alpha — avoid transparent areas turning black
@@ -92,7 +95,7 @@ export async function compressImage(file: File, preset: ImagePreset): Promise<Bl
   throw new Error('Não foi possível reduzir a imagem o suficiente. Tente outra foto.');
 }
 
-const EXT: Record<string, string> = { 'image/webp': 'webp', 'image/jpeg': 'jpg', 'image/png': 'png', 'image/svg+xml': 'svg' };
+const EXT: Record<string, string> = { 'image/webp': 'webp', 'image/jpeg': 'jpg', 'image/png': 'png' };
 
 const blobToDataUrl = (blob: Blob) =>
   new Promise<string>((resolve, reject) => {

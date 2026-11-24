@@ -12,6 +12,8 @@ export type PlatformHotel = {
   created_at: string;
   updated_at: string;
   configured: boolean;
+  /** Shown on the public showcase (hotelguia.com.br) — 0009. */
+  listed: boolean;
   admins: number;
   pending_admins: number;
   sessions_30d: number;
@@ -79,6 +81,7 @@ export const platformApi = {
   hotels: () => rpc<PlatformHotel[]>('platform_hotels'),
   createHotel: (id: string, name: string) => rpc<void>('platform_create_hotel', { p_id: id, p_name: name }),
   renameHotel: (id: string, name: string) => rpc<void>('platform_rename_hotel', { p_id: id, p_name: name }),
+  setListed: (id: string, listed: boolean) => rpc<void>('platform_set_listed', { p_id: id, p_listed: listed }),
   deleteHotel: (id: string) => rpc<void>('platform_delete_hotel', { p_id: id }),
   admins: (hotelId: string) => rpc<HotelAdmin[]>('platform_hotel_admins', { p_hotel: hotelId }),
   setRole: (hotelId: string, userId: string, role: HotelAdminRole) =>

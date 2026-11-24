@@ -1,6 +1,7 @@
 import { ArrowRight, Loader2, RefreshCw, WifiOff } from 'lucide-react';
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { hotelUrl, RESERVED } from '../lib/tenant';
+import { HotelDirectory } from './HotelDirectory';
 
 export const PLATFORM_NAME = 'Hotel Guia';
 
@@ -58,17 +59,30 @@ function HotelCodeForm() {
   );
 }
 
-/** hotelguia.com.br — platform root. Placeholder until the partner-hotel showcase (phase 4). */
+/** hotelguia.com.br — platform root: hotel code + showcase of partner hotels (with search). */
 export function PlatformHome() {
   // A path that isn't a valid hotel id (e.g. /Hotel%20X!) lands here too.
   const notFound = window.location.pathname.replace(/\/+$/, '') !== '';
   if (notFound) return <HotelNotFound />;
   return (
-    <Screen>
-      <h1>O guia digital do seu hotel.</h1>
-      <p>Horários, programação, mapa e contato com a recepção — tudo no celular, sem baixar aplicativo.</p>
-      <HotelCodeForm />
-    </Screen>
+    <main className="platform platform-home">
+      <header className="ph-top">
+        <p className="platform-brand">
+          <span className="platform-mark">HG</span> {PLATFORM_NAME}
+        </p>
+      </header>
+      <section className="ph-hero">
+        <div className="ph-hero-text">
+          <h1>O guia digital do seu hotel.</h1>
+          <p>Horários, programação, mapa e contato com a recepção — tudo no celular, sem baixar aplicativo.</p>
+        </div>
+        <div className="platform-card">
+          <HotelCodeForm />
+        </div>
+      </section>
+      <HotelDirectory />
+      <p className="platform-foot">hotelguia.com.br</p>
+    </main>
   );
 }
 

@@ -168,6 +168,26 @@ todos os cliques; o "Exportar CSV" traz os cliques individuais dos últimos 90 d
 - **Versão do banco:** o site confere se o banco tem todas as migrações e mostra "Banco desatualizado" no painel quando falta
   alguma. Ao criar uma migração nova, atualize `app_schema_version()` no SQL e `EXPECTED_SCHEMA` em `src/lib/schema.ts`.
 
+### Vitrine de hotéis e reforços de segurança (uma vez)
+
+**Depois de publicar o site**, rode `supabase/migrations/0009_directory_and_hardening.sql` no SQL Editor.
+
+- **Vitrine:** a página inicial (`hotelguia.com.br`) lista os hotéis com foto, cidade e busca. Entram os hotéis que já
+  salvaram conteúdo; no `/painel`, _Vitrine em hotelguia.com.br_ oculta um hotel (ex.: hotel de teste).
+- Visitantes só leem as colunas públicas de `hotels` (antes viam também o id de quem salvou).
+- Logos em SVG passam a ser convertidas em PNG/WebP no navegador; o Storage não aceita mais SVG (pode conter código).
+
+Proteções no site (`vercel.json`): CSP (só carrega scripts do próprio site e do CAPTCHA; conexões só com o Supabase do
+projeto e a previsão do tempo), bloqueio de iframe, `nosniff`, Referrer-Policy, Permissions-Policy e HSTS. **Se trocar de
+projeto Supabase, atualize o endereço no CSP do `vercel.json`.** Links externos dos atalhos só abrem `https://`, `mailto:`
+e `tel:` (bloqueia `javascript:`). A função `invite-admin` só aceita chamadas e links de retorno de `hotelguia.com.br`
+(e `localhost`); outros endereços vão no secret `ALLOWED_ORIGINS`.
+
+Recomendado no Supabase (_Authentication_):
+
+- _URL Configuration → Redirect URLs_: deixe só `https://hotelguia.com.br/**` e `http://localhost:5173/**`.
+- _Sign In / Providers → Email_: **Prevent use of leaked passwords** ligado e senha mínima de 10 caracteres.
+
 ### E-mail próprio com Resend (uma vez)
 
 Sem isso, o "Esqueci minha senha" só entrega para quem é da equipe do projeto Supabase.
@@ -259,4 +279,5 @@ Papéis: **owner** e **admin** editam tudo; **staff** vê só os Relatórios.
 - [x] Histórico de versões, junção de edições simultâneas, modelo neutro para hotel novo, limite contra spam
 - [x] Código do painel separado do portal (hóspedes não baixam o painel)
 - [ ] Tirar a biblioteca do Supabase do carregamento do hóspede (portal ~35% menor)
-- [ ] Vitrine de hotéis parceiros na página inicial
+- [x] Vitrine de hotéis parceiros na página inicial (com busca)
+- [x] Cabeçalhos de segurança (CSP etc.), favicon e robots.txt

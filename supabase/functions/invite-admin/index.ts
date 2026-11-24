@@ -15,18 +15,31 @@
 // ════════════════════════════════════════════════════════════════════
 import { createClient } from 'npm:@supabase/supabase-js@2.49.4';
 
-const cors = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-};
-
-const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
+// Sites that may call this function and receive its links. Extra ones (e.g. a preview) go in the
+// ALLOWED_ORIGINS secret, comma-separated.
+const ALLOWED = new Set([
+  'https://hotelguia.com.br',
+  'https://www.hotelguia.com.br',
+  ...(Deno.env.get('ALLOWED_ORIGINS') ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean),
+]);
+const allowedOrigin = (o: string) => ALLOWED.has(o) || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(o);
 
 const ROLES = ['owner', 'admin', 'staff'];
 
 Deno.serve(async (req) => {
+  const reqOrigin = req.headers.get('Origin') ?? '';
+  // Per request (requests run concurrently — no shared mutable headers).
+  const cors = {
+    'Access-Control-Allow-Origin': allowedOrigin(reqOrigin) ? reqOrigin : 'https://hotelguia.com.br',
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    Vary: 'Origin',
+  };
+  const json = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
   if (req.method !== 'POST') return json({ error: 'Método não permitido' }, 405);
 
@@ -70,7 +83,7 @@ Deno.serve(async (req) => {
       return '';
     }
   })();
-  if (!origin) return json({ error: 'Endereço de retorno inválido.' }, 400);
+  if (!origin || !allowedOrigin(origin)) return json({ error: 'Endereço de retorno não permitido.' }, 400);
   const redirectTo = `${origin}/${hotelId}?convite=1`;
 
   const admin = createClient(url, secret, { auth: { persistSession: false, autoRefreshToken: false } });

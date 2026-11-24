@@ -3,6 +3,7 @@ import { useWifiAction } from '../components/WifiSheet';
 import { useTrack } from './analytics';
 import { useGuest } from '../state/GuestContext';
 import type { QuickAction } from '../types';
+import { safeExternalUrl } from './safeUrl';
 
 /** Destinations offered in the admin when a shortcut points to a portal page. */
 export const ROUTE_OPTIONS: { value: string; label: string }[] = [
@@ -30,9 +31,11 @@ export function useRunQuickAction() {
         case 'contact':
           setDrawerOpen(false);
           return setContactOpen(true);
-        case 'url':
-          if (a.target) window.open(a.target, '_blank', 'noopener,noreferrer');
+        case 'url': {
+          const url = safeExternalUrl(a.target);
+          if (url) window.open(url, '_blank', 'noopener,noreferrer');
           return;
+        }
         default:
           return navigate(a.target);
       }

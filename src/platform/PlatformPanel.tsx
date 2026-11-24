@@ -18,7 +18,7 @@ import {
   UserPlus,
 } from 'lucide-react';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { Card, Empty, Field, Input, Select } from '../admin/ui';
+import { Card, Empty, Field, Input, Select, Toggle } from '../admin/ui';
 import { MIGRATION_FILE, useSchemaOutdated } from '../lib/schema';
 import { RESERVED } from '../lib/tenant';
 import { useAdminAccess } from '../state/AdminAccess';
@@ -408,6 +408,26 @@ function HotelDetail({ hotel: h, onChanged, onDeleted }: { hotel: PlatformHotel;
               <ExternalLink size={16} /> Painel do hotel
             </a>
             <CopyButton text={portalUrl(h.id)} label="Copiar link do portal" />
+          </div>
+        </Field>
+        <Field
+          label="Vitrine em hotelguia.com.br"
+          group
+          hint={
+            !h.configured
+              ? 'Aparece na vitrine depois que o hotel salvar o conteúdo pela primeira vez.'
+              : h.listed
+                ? 'Aparece na página inicial, com foto e busca.'
+                : 'Oculto da página inicial (o portal continua funcionando pelo link e QR Code).'
+          }
+        >
+          <div className="a-toggle-row">
+            <Toggle
+              checked={h.listed}
+              onChange={(v) => act(() => platformApi.setListed(h.id, v), v ? 'Hotel na vitrine' : 'Hotel oculto da vitrine')}
+              label="Mostrar na vitrine"
+            />
+            <small>{h.listed ? 'Visível' : 'Oculto'}</small>
           </div>
         </Field>
       </div>

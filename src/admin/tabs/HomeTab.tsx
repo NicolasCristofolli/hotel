@@ -1,3 +1,4 @@
+import { safeExternalUrl } from '../../lib/safeUrl';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
 import { Icon, ICON_NAMES } from '../../lib/icons';
@@ -149,7 +150,15 @@ function ShortcutsCard() {
                     </Field>
                   )}
                   {a.kind === 'url' && (
-                    <Field label="Link (URL)" wide hint="Abre em nova aba — ex.: cardápio em PDF, site de reservas, Instagram">
+                    <Field
+                      label="Link (URL)"
+                      wide
+                      hint={
+                        a.target && a.target !== 'https://' && !safeExternalUrl(a.target)
+                          ? '⚠ Link inválido: use um endereço começando com https:// — ele não vai abrir para os hóspedes.'
+                          : 'Abre em nova aba — ex.: cardápio em PDF, site de reservas, Instagram'
+                      }
+                    >
                       <Input type="url" value={a.target} onChange={(e) => update(a.id, { target: e.target.value.trim() })} />
                     </Field>
                   )}

@@ -3,7 +3,7 @@
 const esc = (s: string) =>
   s
     .replace(/\\/g, '\\\\')
-    .replace(/\n/g, '\\n')
+    .replace(/\r?\n|\r/g, '\\n')
     .replace(/([,;])/g, '\\$1');
 const pad = (n: number) => String(n).padStart(2, '0');
 /** Floating local time (no timezone) — the phone shows it at the same clock time as the hotel schedule. */
